@@ -1,3 +1,5 @@
+# File Friendly Help
+
 File Friendly is designed to help you organize and file your Outlook
 emails with speed and accuracy. This help file provides guidance on
 using the program's features and maximizing your productivity.
