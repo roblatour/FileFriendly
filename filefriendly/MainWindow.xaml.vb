@@ -8,8 +8,6 @@ Imports System.Windows
 Class MainWindow
     Inherits Window
 
-    ' Include reference to Outlook 12 Object
-
     Private gForegroundColourAlert As System.Windows.Media.SolidColorBrush
     Private gForegroundColourEnabled As System.Windows.Media.SolidColorBrush
     Private gForegroundColourDisabled As System.Windows.Media.SolidColorBrush
@@ -174,10 +172,16 @@ Class MainWindow
             '************** DeleteHiddenMessage()  '*** only uncomment for testing security
             '***********************************************
 
-            ' Verify Outlook is available using Outlook object model instead of Redemption
+            MainWindow.Visibility = Windows.Visibility.Hidden
+            ' Verify Outlook is available and can be started when needed
+            If Not EnsureOutlookIsRunning() Then
+                ' EnsureOutlookIsRunning already showed a detailed message
+                End
+            End If
+            MainWindow.Visibility = Windows.Visibility.Visible
+
             Try
-                Dim testNs As Microsoft.Office.Interop.Outlook.NameSpace = oApp.Session
-                Dim version As String = testNs.Application.Version
+                Dim version As String = oApp.Version
                 If String.IsNullOrEmpty(version) Then
                     Throw New Exception("Outlook version is empty")
                 End If
@@ -513,41 +517,10 @@ Class MainWindow
 
                 Case Is = "Initialize"
 
-                    Try
-
-                        oApp = CreateObject("Outlook.Application")
-                        oNS = oApp.GetNamespace("MAPI")
-
-                        Try ' added in v1.3 to allow access to exchange servers
-                            oNS.Logon(oNS.CurrentProfileName.ToString, "", False, False)
-                        Catch ex1 As Exception
-                            Try
-                                oNS.Logon("Outlook", "", False, False)
-                            Catch ex2 As Exception
-                                Try
-                                    oNS.Logon("Outlook", "", False, True)
-                                Catch ex3 As Exception
-                                End Try
-                            End Try
-
-                        End Try
-
-                    Catch ex As Exception
-
-                        ShowMessageBox("FileFriendly",
-                        CustomDialog.CustomDialogIcons.Information, "FileFriendly cannot access Microsoft Outlook on this machine.",
-                        vbCrLf & "If Outlook is not installed, please be aware FileFriendly needs Outlook to run." & vbCrLf &
-                        vbCrLf & "If Outlook is installed running Microsoft's free scanpst program may resolve the problem.",
-                        ex.ToString,
-                        gGithubWebPage, CustomDialog.CustomDialogIcons.None,
-                        CustomDialog.CustomDialogButtons.OK)
-
-                        Me.Close()
-                        End
-
-                    End Try
-
-                    EnsureOutlookIsRunning()
+                    ' Do not spin up Outlook here; let EnsureOutlookIsRunning()
+                    ' manage starting and repairing the Outlook session as needed.
+                    oApp = Nothing
+                    oNS = Nothing
 
                     Dim mySessionID As Int16
                     Dim AllProcesses() As System.Diagnostics.Process = Process.GetProcesses()
@@ -593,6 +566,16 @@ Class MainWindow
     End Sub
 
 #Region "List View Stuff"
+
+    ' Thread‑safe wrapper to update the cursor from any thread
+    Private Sub SetUiCursor(ByVal cursor As System.Windows.Input.Cursor)
+        If Dispatcher.CheckAccess() Then
+            Me.Cursor = cursor
+        Else
+            Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor),
+                                   New Object() {cursor})
+        End If
+    End Sub
 
     Delegate Sub SetCursorCallback(ByVal [CursorType] As System.Windows.Input.Cursor)
     Private Sub SetCursor(ByVal [CursorType] As System.Windows.Input.Cursor)
@@ -2632,10 +2615,15 @@ EarlyExit:
         'ignor doubleclick if it happened within the bounds of the scrollbar
 
         If ListView1.ActualWidth - e.GetPosition(Me.ListView1).X > 15 Then
+            ' Keep existing behavior: update details and select whole chain
             UpdateDetails()
             RemoveHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
             SelectAllMembersOfAnEmailChain()
             AddHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
+
+            ' New behavior: open the e‑mail associated with the clicked entry
+            ' (matches what the "Open" menu/command does, but without asking for confirmation)
+            OpenAnEmail()
         End If
 
     End Sub
@@ -2957,19 +2945,17 @@ EarlyExit:
 
     Private Sub ToggleReadStateForSelectedItem()
 
-        Try
+        ' Show wait cursor while we do COM work
+        SetUiCursor(Cursors.Wait)
 
+        Try
             Dim selectedRow As ListViewRowClass = TryCast(ListView1.SelectedItem, ListViewRowClass)
             If selectedRow Is Nothing Then
                 Exit Sub
             End If
 
-            ' Ensure Outlook is running before trying to update an item
-            If Not IsOutlookIsRunning() Then
-                EnsureOutlookIsRunning()
-            End If
-
-            If oNS Is Nothing Then
+            ' Ensure Outlook is running and session is usable
+            If Not EnsureOutlookIsRunning() Then
                 Exit Sub
             End If
 
@@ -2981,21 +2967,85 @@ EarlyExit:
 
             Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
 
-            Try
-                ' We do not have to pass StoreID here – behaviour matches existing OpenAnEmail
-                mailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
-            Catch
-                mailItem = Nothing
-            End Try
+            ' We will try GetItemFromID up to 2 times:
+            '  - first with the current session
+            '  - on RPC disconnect errors, rebuild session and retry once
+            Dim attempt As Integer = 0
+            While attempt < 2 AndAlso mailItem Is Nothing
+
+                Try
+                    mailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
+
+                Catch comEx As System.Runtime.InteropServices.COMException
+                    Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                    Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                    If (comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED) AndAlso attempt = 0 Then
+                        ' Drop and rebuild the Outlook session once
+                        oNS = Nothing
+                        oApp = Nothing
+
+                        If Not EnsureOutlookIsRunning() Then
+                            ' EnsureOutlookIsRunning already showed an error
+                            Exit Sub
+                        End If
+
+                        ' Let the loop retry GetItemFromID with fresh session
+                        mailItem = Nothing
+                    Else
+                        ' Any other COM error, or second failure: show a friendly message and bail
+                        MsgBox("FileFriendly could not access the selected e-mail in Outlook." & vbCrLf & vbCrLf &
+                               "Details: " & comEx.Message,
+                               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                               "FileFriendly - Toggle Read/Unread Failed")
+                        Exit Sub
+                    End If
+
+                Catch ex As Exception
+                    MsgBox("FileFriendly could not access the selected e-mail in Outlook." & vbCrLf & vbCrLf &
+                           "Details: " & ex.Message,
+                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Toggle Read/Unread Failed")
+                    Exit Sub
+                End Try
+
+                attempt += 1
+            End While
 
             If mailItem Is Nothing Then
+                ' After retry we still did not get a MailItem
                 Exit Sub
             End If
 
-            ' Toggle the unread flag in Outlook
-            Dim currentlyUnread As Boolean = mailItem.UnRead
-            mailItem.UnRead = Not currentlyUnread
-            mailItem.Save()
+            ' Toggle the unread flag in Outlook (this can also hit RPC errors)
+            Try
+                Dim currentlyUnread As Boolean = mailItem.UnRead
+                mailItem.UnRead = Not currentlyUnread
+                mailItem.Save()
+            Catch comEx As System.Runtime.InteropServices.COMException
+                Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
+                    MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
+                           "It appears that Outlook became unavailable while the change was being applied." & vbCrLf & vbCrLf &
+                           "Please ensure Outlook is running and try again.",
+                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Toggle Read/Unread Failed")
+                Else
+                    MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
+                           "Details: " & comEx.Message,
+                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Toggle Read/Unread Failed")
+                End If
+                Exit Sub
+            Catch ex As Exception
+                MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
+                       "Details: " & ex.Message,
+                       MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                       "FileFriendly - Toggle Read/Unread Failed")
+                Exit Sub
+            End Try
 
             ' Reflect the new state in the ListView row
             Dim index As Integer = ListView1.SelectedIndex
@@ -3023,6 +3073,9 @@ EarlyExit:
             MsgBox(ex.Message,
                    MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
                    "FileFriendly - Toggle Read/Unread Failed")
+        Finally
+            ' Always restore cursor
+            SetUiCursor(Cursors.Arrow)
         End Try
 
     End Sub
@@ -3339,28 +3392,77 @@ EarlyExit:
 
     Private Sub OpenAnEmail()
 
+        ' Show wait cursor while we do COM work
+        SetUiCursor(Cursors.Wait)
+
         Try
 
-            If ListView1.SelectedItem Is Nothing OrElse
-               ListView1.SelectedItem.OutlookEntryID Is Nothing OrElse
-               ListView1.SelectedItem.OutlookEntryID.Length = 0 Then
+            Dim selectedRow As ListViewRowClass = TryCast(ListView1.SelectedItem, ListViewRowClass)
+            If selectedRow Is Nothing OrElse
+               String.IsNullOrEmpty(selectedRow.OutlookEntryID) Then
                 Exit Try
             End If
 
-            ' Ensure Outlook is running before trying to display an item
-            If Not IsOutlookIsRunning() Then
-                EnsureOutlookIsRunning()
+            ' Ensure Outlook is running and session is usable
+            If Not EnsureOutlookIsRunning() Then
+                Exit Try
             End If
 
-            Dim EntryID As String = ListView1.SelectedItem.OutlookEntryID
+            Dim entryId As String = selectedRow.OutlookEntryID
+            Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
 
-            ' Open with Outlook object model only
-            oNS.GetItemFromID(EntryID).Display()
+            ' Retry GetItemFromID once if we see an RPC disconnect
+            Dim attempt As Integer = 0
+            While attempt < 2 AndAlso mailItem Is Nothing
 
-            'if the email isn't already marked then mark it unread
+                Try
+                    mailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
+
+                Catch comEx As System.Runtime.InteropServices.COMException
+                    Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                    Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                    If (comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED) AndAlso attempt = 0 Then
+                        ' Drop and rebuild the Outlook session once
+                        oNS = Nothing
+                        oApp = Nothing
+
+                        If Not EnsureOutlookIsRunning() Then
+                            ' EnsureOutlookIsRunning already showed an error
+                            Exit Try
+                        End If
+
+                        ' Loop will retry with fresh session
+                        mailItem = Nothing
+                    Else
+                        MsgBox("FileFriendly could not open the selected e-mail in Outlook." & vbCrLf & vbCrLf &
+                               "Details: " & comEx.Message,
+                               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                               "FileFriendly - Open Fail")
+                        Exit Try
+                    End If
+
+                Catch ex As Exception
+                    MsgBox("FileFriendly could not open the selected e-mail in Outlook." & vbCrLf & vbCrLf &
+                           "Details: " & ex.Message,
+                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Open Fail")
+                    Exit Try
+                End Try
+
+                attempt += 1
+            End While
+
+            If mailItem Is Nothing Then
+                Exit Try
+            End If
+
+            mailItem.Display()
+
+            ' if the email isn't already marked then mark it read in the grid
             Dim index As Integer = ListView1.SelectedIndex
-            If ListView1.Items(index).Unread = System.Windows.FontWeights.Bold Then
-                Dim hold As ListViewRowClass = ListView1.SelectedItem
+            If index >= 0 AndAlso ListView1.Items(index).UnRead = System.Windows.FontWeights.Bold Then
+                Dim hold As ListViewRowClass = CType(ListView1.Items(index), ListViewRowClass)
                 hold.UnRead = System.Windows.FontWeights.Normal
                 ListView1.Items.RemoveAt(index)
                 ListView1.Items.Insert(index, hold)
@@ -3369,7 +3471,12 @@ EarlyExit:
             End If
 
         Catch ex As Exception
-            MsgBox(ex.Message & vbCrLf & vbCrLf & "If Outlook is not running please start it and try again.", MsgBoxStyle.Exclamation, "FileFriendly - Open Fail")
+            MsgBox(ex.Message & vbCrLf & vbCrLf &
+                   "If Outlook is not running please start it and try again.",
+                   MsgBoxStyle.Exclamation,
+                   "FileFriendly - Open Fail")
+        Finally
+            SetUiCursor(Cursors.Arrow)
         End Try
 
     End Sub
@@ -3564,27 +3671,66 @@ EarlyExit:
 
         'Returns new email id of filed message (empty string on failure)
 
-        Dim ReturnCode As String
+        Dim ReturnCode As String = ""
+
+        ' Show wait cursor during Outlook COM work
+        SetUiCursor(Cursors.Wait)
 
         Try
-            ' Ensure session is valid
-            If oNS Is Nothing OrElse oApp Is Nothing Then
-                Throw New InvalidOperationException("Outlook session is not initialized.")
+            If Not EnsureOutlookIsRunning() Then
+                Return ""
             End If
 
-            If Not IsOutlookIsRunning() Then
-                Throw New InvalidOperationException("Microsoft Outlook is not running.")
-            End If
+            Dim mail As Microsoft.Office.Interop.Outlook.MailItem = Nothing
+            Dim targetFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing
 
-            oMailItem = oNS.GetItemFromID(EmailID, SourceStoreID)
-            oTargetFolder = oNS.GetFolderFromID(TargetEntryID, TargetStoreID)
+            ' Retry GetItemFromID / GetFolderFromID once on RPC disconnect
+            Dim attempt As Integer = 0
+            While attempt < 2 AndAlso (mail Is Nothing OrElse targetFolder Is Nothing)
 
-            If oMailItem Is Nothing OrElse oTargetFolder Is Nothing Then
-                Throw New InvalidOperationException("Unable to resolve the selected e-mail or target folder in Outlook.")
+                Try
+                    mail = TryCast(oNS.GetItemFromID(EmailID, SourceStoreID), Microsoft.Office.Interop.Outlook.MailItem)
+                    targetFolder = oNS.GetFolderFromID(TargetEntryID, TargetStoreID)
+
+                Catch comEx As System.Runtime.InteropServices.COMException
+                    Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                    Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                    If (comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED) AndAlso attempt = 0 Then
+                        oNS = Nothing
+                        oApp = Nothing
+
+                        If Not EnsureOutlookIsRunning() Then
+                            Return ""
+                        End If
+
+                        mail = Nothing
+                        targetFolder = Nothing
+                    Else
+                        MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
+                               "Details: " & comEx.Message,
+                               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                               "FileFriendly - Outlook Error")
+                        Return ""
+                    End If
+
+                Catch ex As Exception
+                    MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
+                           "Details: " & ex.Message,
+                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Outlook Error")
+                    Return ""
+                End Try
+
+                attempt += 1
+            End While
+
+            If mail Is Nothing OrElse targetFolder Is Nothing Then
+                Return ""
             End If
 
             'Do the move
-            Dim oMovedEmail As Microsoft.Office.Interop.Outlook.MailItem = oMailItem.Move(oTargetFolder)
+            Dim oMovedEmail As Microsoft.Office.Interop.Outlook.MailItem = mail.Move(targetFolder)
 
             'Get new Entry ID
             Dim MovedEntryID As String = oMovedEmail.EntryID
@@ -3598,17 +3744,13 @@ EarlyExit:
 
             oMovedEmail = Nothing
 
-        Catch comEx As System.Runtime.InteropServices.COMException
-            MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
-               "Details: " & comEx.Message,
-               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-               "FileFriendly - Outlook Error")
-            ReturnCode = ""
         Catch ex As Exception
             MsgBox(ex.Message,
                MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
                "FileFriendly - Outlook Error")
             ReturnCode = ""
+        Finally
+            SetUiCursor(Cursors.Arrow)
         End Try
 
         Return ReturnCode
@@ -3873,25 +4015,6 @@ EarlyExit:
         Static Dim TooManyActionsMessageDisplayed As Boolean = False
 
         Try
-            ' Ensure Outlook is running for any action that moves/deletes messages
-            If Action = "File" OrElse Action = "Delete" Then
-                If Not IsOutlookIsRunning() Then
-                    ' Try to start Outlook and refresh the MAPI session
-                    EnsureOutlookIsRunning()
-
-                    ' Rebind oApp and oNS in case the old session is invalid
-                    Try
-                        oApp = CType(CreateObject("Outlook.Application"), Microsoft.Office.Interop.Outlook.Application)
-                        oNS = oApp.GetNamespace("MAPI")
-                    Catch exRebind As Exception
-                        MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
-                           "The requested action cannot be completed until Outlook is available.",
-                           MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Outlook Not Available")
-                        Exit Sub
-                    End Try
-                End If
-            End If
 
             'action requests
             Dim IndexToAction As Integer
@@ -4103,123 +4226,232 @@ EarlyExit:
 
 #Region "Ensure Outlook is running if needed"
 
-    Private Sub EnsureOutlookIsRunning()
-
-        Dim mos As ManagementObjectSearcher = Nothing
-        Dim mo As ManagementObject = Nothing
+    ' Non-blocking status notification used when starting Outlook
+    Private Sub ShowOutlookStartingMessage()
         Try
+            Me.Dispatcher.BeginInvoke(
+                New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
+                New Object() {"Starting Outlook – please wait…"})
+        Catch
+        End Try
+    End Sub
 
-            mos = New ManagementObjectSearcher("SELECT NAME FROM Win32_Process")
-            For Each mo In mos.Get
-                If UCase(mo("Name").ToString) = "OUTLOOK.EXE" Then
-                    ' Outlook is running
-                    Exit Try
+    Private Sub ClearOutlookStartingMessage()
+        Try
+            ' Only clear if we are still showing the "Starting Outlook" text
+            If TypeOf Me.lblMainMessageLine.Content Is String Then
+                Dim current As String = CStr(Me.lblMainMessageLine.Content)
+                If current.Contains("Starting Outlook") Then
+                    Me.Dispatcher.BeginInvoke(
+                        New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
+                        New Object() {"0 e-mails"})
                 End If
-            Next
+            End If
+        Catch
+        End Try
+    End Sub
 
-            BeginProgramNow(GetOutlookPathName)
-
-            For x As Integer = 1 To 15
-                Thread.Sleep(1000)
-                mos = New ManagementObjectSearcher("SELECT NAME FROM Win32_Process")
-                For Each mo In mos.Get
-                    If UCase(mo("Name").ToString) = "OUTLOOK.EXE" Then
-                        Thread.Sleep(5000)
-                        Me.BringIntoView()
-                        Exit Try
+    ' Returns True if any Outlook.exe is running in our session
+    Private Function IsOutlookProcessRunning() As Boolean
+        Try
+            Dim currentSessionId As Integer = Process.GetCurrentProcess().SessionId
+            For Each p As Process In Process.GetProcessesByName("OUTLOOK")
+                Try
+                    If p.SessionId = currentSessionId AndAlso Not p.HasExited Then
+                        Return True
                     End If
-                Next
+                Catch
+                    ' ignore individual process access errors
+                End Try
             Next
-            MsgBox("Outlook failed to start")
-
-        Catch ex As Exception
-            MsgBox(ex.ToString)
+        Catch
         End Try
-
-        mo.Dispose()
-        mos.Dispose()
-
-    End Sub
-
-    Friend Function IsOutlookIsRunning() As Boolean
-
-        Dim ReturnCode As Boolean = False
-
-        Dim mos As ManagementObjectSearcher = Nothing
-        Dim mo As ManagementObject = Nothing
-        Try
-            mos = New ManagementObjectSearcher("SELECT NAME FROM Win32_Process")
-            For Each mo In mos.Get
-                If UCase(mo("Name").ToString) = "OUTLOOK.EXE" Then
-                    ReturnCode = True
-                    Exit Try
-                End If
-            Next
-        Catch ex As Exception
-            MsgBox(ex.ToString)
-        End Try
-        mo.Dispose()
-        mos.Dispose()
-
-        Return ReturnCode
-
+        Return False
     End Function
 
-    Friend Function GetOutlookPathName() As String
+    Private Function EnsureOutlookIsRunning() As Boolean
 
-        Dim ReturnCode As String = ""
+        ' Try to ensure we have a live Outlook session (Application + NameSpace + MAPI)
+        ' Strategy:
+        '   1. If we already have oApp/oNS, test with a cheap call.
+        '      - On RPC_E_SERVER* errors, drop COM objects and repair.
+        '   2. If no Outlook.exe process, ask user if we may start Outlook, then:
+        '      - Start outlook.exe
+        '      - Show a non-blocking status message and wait a bit for the main window.
+        '   3. (Re)create Outlook.Application and MAPI NameSpace.
+        '   4. Show a single, clear error and return False if Outlook really is unavailable.
+        '   5. Show a wait cursor while we might spin up / fix Outlook.
 
-        'Commented out code was moved outside subroutine for performance
-        'Dim oApp As Microsoft.Office.Interop.Outlook.Application
-        'Dim oNS As Microsoft.Office.Interop.Outlook.NameSpace
-        Dim MyFolder As Microsoft.Office.Interop.Outlook.MAPIFolder
-
-        'oApp = CreateObject("Outlook.Application")
-        'oNS = oApp.GetNamespace("MAPI")
-        MyFolder = oNS.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderInbox)
-
-        Dim mos As ManagementObjectSearcher
-        Dim mo As ManagementObject
-
+        Dim originalCursor As System.Windows.Input.Cursor = Nothing
         Try
-            mos = New ManagementObjectSearcher("SELECT Name, ExecutablePath FROM Win32_Process")
-            For Each mo In mos.Get
-                If UCase(mo("Name").ToString) = "OUTLOOK.EXE" Then
-                    ReturnCode = mo("ExecutablePath").ToString.Trim
-                    Exit For
-                End If
-            Next
-        Catch ex As Exception
+            If Dispatcher.CheckAccess() Then
+                originalCursor = Me.Cursor
+            End If
+        Catch
         End Try
 
-        Return ReturnCode
+        SetUiCursor(Cursors.Wait)
+
+        Try
+            Dim repairOnly As Boolean = False
+
+            ' Fast path – existing COM session
+            If oApp IsNot Nothing AndAlso oNS IsNot Nothing Then
+                Try
+                    Dim dummy As Integer = oNS.Folders.Count
+                    Return True
+                Catch comEx As System.Runtime.InteropServices.COMException
+                    Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                    Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                    If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
+                        ' We had a COM session but it disconnected: repair only
+                        repairOnly = True
+                        oNS = Nothing
+                        oApp = Nothing
+                    Else
+                        Throw
+                    End If
+                End Try
+            End If
+
+            ' At this point either:
+            '  - we had no COM session, or
+            '  - we had one but need to repair it (repairOnly = True).
+
+            ' 1) Ensure an Outlook.exe process exists if this is NOT a repairOnly scenario
+            If Not repairOnly AndAlso Not IsOutlookProcessRunning() Then
+
+                ' Ask the user if it's OK to start Outlook now
+                Dim header As String = "FileFriendly - Start Outlook?"
+                Dim instruction As String = vbCrLf &
+                    "Microsoft Outlook is not running." & vbCrLf & vbCrLf &
+                    "FileFriendly needs Outlook to be running in order to help file your e-mails." & vbCrLf & vbCrLf &
+                    "Would you like FileFriendly to automatically start Outlook for you?"
+                Dim detail As String =
+                    "If you choose 'No', FileFriendly will close." & vbCrLf & "Later, if you wish, you can start Outlook and then afterwards start FileFriendly to avoid this message." & vbCrLf & vbCrLf &
+                    "If you choose 'Yes', FileFriendly will automatically start Outlook. Normally, Outlook will start fine. However, Outlook may ask you if you want to start it in safe mode - especially if Outlook had previously crashed. Ideally, Outlook should be started normally."
+
+                Dim response As CustomDialog.CustomDialogResults =
+                    ShowMessageBox(header,
+                                   CustomDialog.CustomDialogIcons.Question,
+                                   instruction,
+                                   "",
+                                   detail,
+                                   "",
+                                   CustomDialog.CustomDialogIcons.None,
+                                   CustomDialog.CustomDialogButtons.YesNo,
+                                   CustomDialog.CustomDialogResults.Yes)
+
+                If response <> CustomDialog.CustomDialogResults.Yes Then
+                    ' User does not want Outlook started – inform and close
+                    ShowMessageBox("FileFriendly",
+                                   CustomDialog.CustomDialogIcons.Information,
+                                   "FileFriendly will close when you click 'OK'.",
+                                   "",
+                                   "To run FileFriendly ideally Outlook should be already be running.",
+                                   "",
+                                   CustomDialog.CustomDialogIcons.None,
+                                   CustomDialog.CustomDialogButtons.OK,
+                                   CustomDialog.CustomDialogResults.OK)
+                    Return False
+                End If
+
+                ' Non-blocking notification in the status line
+                ShowOutlookStartingMessage()
+
+                ' Start Outlook in the background like the user would
+                Try
+                    Process.Start("outlook.exe")
+                Catch exStart As Exception
+                    ClearOutlookStartingMessage()
+                    MsgBox("FileFriendly cannot start Microsoft Outlook." & vbCrLf & vbCrLf &
+                           "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
+                           "Details: " & exStart.Message,
+                           MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Outlook Not Available")
+                    Return False
+                End Try
+
+                ' Wait briefly for Outlook to create its main window (up to ~15 seconds)
+                Dim startedOk As Boolean = False
+                Dim deadline As Date = Date.UtcNow.AddSeconds(15)
+
+                Do
+                    System.Threading.Thread.Sleep(500)
+
+                    Try
+                        Dim currentSessionId As Integer = Process.GetCurrentProcess().SessionId
+                        For Each p As Process In Process.GetProcessesByName("OUTLOOK")
+                            Try
+                                If p.SessionId = currentSessionId AndAlso Not p.HasExited Then
+                                    If p.MainWindowHandle <> IntPtr.Zero Then
+                                        startedOk = True
+                                        Exit For
+                                    End If
+                                End If
+                            Catch
+                            End Try
+                        Next
+                    Catch
+                    End Try
+
+                    If startedOk Then Exit Do
+                Loop While Date.UtcNow < deadline
+
+                ' Whether or not we saw the main window in time, clear the "starting" hint.
+                ClearOutlookStartingMessage()
+            End If
+
+            ' 2) (Re)create Outlook.Application and MAPI NameSpace
+            Try
+                oApp = CType(CreateObject("Outlook.Application"), Microsoft.Office.Interop.Outlook.Application)
+            Catch exCreate As Exception
+                MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
+                       "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
+                       "Details: " & exCreate.Message,
+                       MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
+                       "FileFriendly - Outlook Not Available")
+                oApp = Nothing
+                oNS = Nothing
+                Return False
+            End Try
+
+            Try
+                oNS = oApp.GetNamespace("MAPI")
+                Dim dummy As Integer = oNS.Folders.Count
+            Catch exNs As System.Exception
+                MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
+                       "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
+                       "Details: " & exNs.Message,
+                       MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
+                       "FileFriendly - Outlook Not Available")
+                oNS = Nothing
+                oApp = Nothing
+                Return False
+            End Try
+
+            Return True
+
+        Catch ex As Exception
+            MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
+                   "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
+                   "Details: " & ex.Message,
+                   MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
+                   "FileFriendly - Outlook Not Available")
+            oNS = Nothing
+            oApp = Nothing
+            Return False
+
+        Finally
+            If originalCursor IsNot Nothing Then
+                SetUiCursor(originalCursor)
+            Else
+                SetUiCursor(Cursors.Arrow)
+            End If
+        End Try
 
     End Function
-
-
-    Friend Sub BeginProgramNow(ByVal sProgram As String, Optional ByVal sArguments As String = "")
-
-        Try
-
-            Dim ws As String = "Starting a new program: " & vbCrLf & sProgram
-            If sArguments.Length > 0 Then ws &= vbCrLf & sArguments
-
-            sProgram = sProgram.Trim
-            Dim TestProgramName As String = " " & UCase(sProgram)
-            sArguments = sArguments.Trim
-
-            Dim myProcess As New Process
-            myProcess.StartInfo.Verb = "open"
-            myProcess.StartInfo.CreateNoWindow = True
-            myProcess.StartInfo.UseShellExecute = True
-            If sArguments.Length > 0 Then myProcess.StartInfo.Arguments = sArguments
-            myProcess.StartInfo.FileName = sProgram
-            myProcess.Start()
-
-        Catch ex As Exception
-        End Try
-
-    End Sub
 
 #End Region
 
