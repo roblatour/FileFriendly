@@ -43,7 +43,7 @@ or the Escape key to reset.
 
 # Other Actions
 
-Open, delete, hide, or undo actions using right-click menus or keyboard
+Open, toggle read/unread, delete, hide, or undo actions using right-click menus or keyboard
 shortcuts.
 
 # View Options
