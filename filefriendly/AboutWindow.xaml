@@ -1,0 +1,47 @@
+﻿<Window x:Class="LicenseWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="AboutWindow" Height="549" Width="472" WindowStyle="None" MinHeight="542" MinWidth="472" WindowStartupLocation="CenterScreen" ShowInTaskbar="True" Icon="/filefriendly;component/Resources/fflogogif.gif">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/BrushResources.xaml" />
+                <ResourceDictionary Source="Resources/ControlResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Window.Background>
+        <StaticResource ResourceKey="WindowsBackgroundBrush" />
+    </Window.Background>
+    <Grid Height="Auto" Width="Auto">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="27*" />
+            <RowDefinition Height="5*" />
+            <RowDefinition Height="257*" />
+            <RowDefinition Height="227*" />
+            <RowDefinition Height="33*" />
+        </Grid.RowDefinitions>
+        <TabControl Margin="12,10,12,4" Name="TabControl1" Foreground="Brown" Grid.Row="3">
+            <TabItem Header="MIT License" Name="TabItem1" Foreground="Brown" Height="21" VerticalAlignment="Top">
+                <Grid>
+                    <RichTextBox Height="Auto" Margin="5,5,5,0" Name="rtbLicense" Width="Auto" IsReadOnly="True" AutoWordSelection="False" Background="Transparent" IsDocumentEnabled="False" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto" BorderThickness="0" VerticalAlignment="Top" />
+                    <Rectangle Fill="{StaticResource DefaultSystemBrush}" Height="1" Margin="83,-4,-4,0" Name="Rectangle1" Stroke="{StaticResource DefaultSystemBrush}" VerticalAlignment="Top" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <Image Cursor="Hand" HorizontalAlignment="Right" Margin="0,4,7,7" Name="imgClose" Source="/filefriendly;component/Resources/close.gif" Stretch="Fill" ToolTip="Close" Width="14" />
+        <TabControl Foreground="Brown" Margin="10,11,14,0" Name="TabControl2" Grid.Row="2">
+            <TabItem Foreground="Brown" Header="About" Name="TabItem2">
+                <Grid>
+                    <RichTextBox AutoWordSelection="False" Background="Transparent" Height="Auto" HorizontalScrollBarVisibility="Auto" IsDocumentEnabled="True" IsReadOnly="True" Margin="5,5,5,6" Name="rtbAbout" VerticalScrollBarVisibility="Auto" Width="Auto" BorderThickness="0" />
+                    <Rectangle Fill="{StaticResource DefaultSystemBrush}" Height="1" Margin="54,-4,-4,0" Name="Rectangle2" Stroke="{StaticResource DefaultSystemBrush}" VerticalAlignment="Top" />
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <TextBox Height="26" Margin="12,10,65,0" Name="TextBox1" VerticalAlignment="Top" Foreground="Brown" HorizontalContentAlignment="Center" Grid.Row="4">FileFriendly © Copyright 2025 Rob Latour</TextBox>
+        <Button Height="25" Margin="385,0,0,0" Name="Button2" VerticalAlignment="Center" Width="62" HorizontalAlignment="Left" IsCancel="True" IsDefault="True" Grid.Row="4">_OK</Button>
+        <Label Margin="10,5,26,0" Name="lbVersion" FontFamily="Vladimir Script" FontSize="24" Foreground="Brown" HorizontalContentAlignment="Center" Grid.RowSpan="3" Opacity="0.7" Height="34" VerticalAlignment="Top" Focusable="False">FileFriendly version 1</Label>
+    </Grid>
+</Window>

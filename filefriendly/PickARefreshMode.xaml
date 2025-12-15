@@ -1,0 +1,33 @@
+﻿<Window x:Class="PickARefreshMode"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="PickARefreshMode" WindowStyle="None" Name="PickARefreshModeWindow" ShowInTaskbar="False" Height="184" Width="266" Topmost="True" WindowStartupLocation="CenterOwner" Icon="/filefriendly;component/Resources/fflogogif.gif">
+
+    <Window.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Resources/BrushResources.xaml" />
+                <ResourceDictionary Source="Resources/ControlResources.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Window.Resources>
+
+    <Window.Background>
+        <StaticResource ResourceKey="WindowsBackgroundBrush" />
+    </Window.Background>
+    <Grid Width="246" Height="153">
+        <Button Height="27" Margin="9,122,0,0" Name="btnCancel" VerticalAlignment="Top" Width="108" HorizontalAlignment="Left" IsCancel="True">_Cancel</Button>
+        <Button Height="26" Margin="130.5,123,0,0" Name="btnOK" VerticalAlignment="Top" Width="108" HorizontalAlignment="Left" IsDefault="True">_OK</Button>
+        <Rectangle Margin="115,31,8,0" Name="Rectangle2" Stroke="{StaticResource DefaultSystemBrush}" Fill="{StaticResource DefaultSystemBrush}" Height="1" VerticalAlignment="Top" />
+        <TabControl Margin="5,11,0,0" Name="TabControl1" HorizontalAlignment="Left" Width="234" Height="107" VerticalAlignment="Top">
+            <TabItem Header="Refresh Options" Name="TabItem1" Foreground="Brown">
+                <Grid>
+                    <CheckBox Height="16" Margin="71,11,0,0" Name="cbInbox" VerticalAlignment="Top" Foreground="Brown" HorizontalAlignment="Left" Width="79">_Inbox</CheckBox>
+                    <CheckBox Margin="71,34,0,0" Name="cbSent" Foreground="Brown" HorizontalAlignment="Left" Width="79" Height="16.04" VerticalAlignment="Top">_Sent Items</CheckBox>
+                    <CheckBox Margin="71,55.04,0,6" Name="cbOther" Foreground="Brown" HorizontalAlignment="Left" Width="118">Other _Folders</CheckBox>
+                </Grid>
+            </TabItem>
+        </TabControl>
+        <Image Cursor="Hand" Height="14" HorizontalAlignment="Right" Margin="0,3,5,0" Name="imgClose" Source="/filefriendly;component/Resources/close.gif" Stretch="Fill" ToolTip="Close" VerticalAlignment="Top" Width="14" />
+    </Grid>
+</Window>
