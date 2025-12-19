@@ -115,10 +115,10 @@
 
         'ok so here's the deal
         ' clicking on this form or on the main window form needs to bring both to the forefront
-        ' I do this by first brining the other from to the forefront and then this one
+        ' I do this by first bringing the other from to the forefront and then this one
         ' trick is the other form does the same
-        ' problem is we get into a bit of a loop when each form triger the activation of another
-        ' the following flipflop code ensure that rather then a loop, each form is only brough forward once
+        ' problem is we get into a bit of a loop when each form trigger the activation of another
+        ' the following flip flop code ensure that rather then a loop, each form is only brought forward once
 
         Static Dim FlipFlop As Boolean = True
         If FlipFlop Then
@@ -907,7 +907,6 @@
                 intRecommendation4 = LookupFolderNamesTableIndex(OnlyOneFilteredSection)
             End If
 
-            'todo: testing here
             intRecommendation1 = -1
             intRecommendation2 = -1
             intRecommendation3 = -1
@@ -927,7 +926,7 @@
 
         ' there are 30 objects within grid2 - 1 label and 29 buttons
 
-        ' do not resize the lable
+        ' do not resize the label
         ' resize the 29 buttons
         ' a guideline is used to set the target height of the buttons
 

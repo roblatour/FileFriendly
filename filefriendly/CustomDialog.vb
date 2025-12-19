@@ -51,7 +51,7 @@ Public Class CustomDialog
 #Region " Public Properties "
 
     ''' <summary>
-    ''' Gets or sets the optional text is displayed to the user when they click to Show Details expander.  Used to provide a detailed explaination to the user.
+    ''' Gets or sets the optional text is displayed to the user when they click to Show Details expander.  Used to provide a detailed explanation to the user.
     ''' </summary>
     Public Property AdditionalDetailsText() As String
         Get

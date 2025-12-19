@@ -108,7 +108,7 @@ Namespace TreeViewWithCheckBoxes
                         My.Settings.FirstRun = False
                         My.Settings.Save()
 
-                        ''Make sure none of the excluded folders are checked on intial load
+                        ' Make sure none of the excluded folders are checked on initial load
                         Dim ExcludeFolders As String = "\\Outlook\Inbox \\Outlook\Outbox \\Outlook\Deleted Items \\Outlook\Drafts \\Outlook\Sent Items \\Outlook\Spam \\Outlook\Junk E-mail \\Outlook\RSS Feeds "
                         For z = 0 To WorkingTable.Length - 1
                             If ExcludeFolders.Contains(WorkingTable(z).FullPathName) Then

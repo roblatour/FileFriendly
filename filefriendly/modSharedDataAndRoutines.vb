@@ -3,10 +3,13 @@
     ' Shared Data
 
     Friend ReadOnly gGithubWebPage As String = "https://github.com/roblatour/FileFriendly"
-    Friend ReadOnly gHelpWebPage As String = "https://github.com/roblatour/FileFriendly/blob/main/Help/Help_v2_0.md"
+    Friend gHelpWebPage As String = "https://github.com/roblatour/FileFriendly/blob/main/Help/" ' the help filename be appended at startup
 
     Private ReadOnly gCurrentVersionWebPage As String = "https://raw.githubusercontent.com/roblatour/FileFriendly/refs/heads/main/versionControl/currentversion.txt"
     Private ReadOnly gDownloadWebPage = "https://github.com/roblatour/FileFriendly/releases/latest"
+
+    Friend gAppVersion As Version
+    Friend gAppVersionString As String
 
     Friend gScanningFolders As Boolean = True
     Friend gARefreshIsRequired As Boolean = False
@@ -67,6 +70,7 @@
     Friend gAboutWindow As LicenseWindow
 
     Friend gRefreshInbox, gRefreshSent, gRefreshAll, gRefreshConfirmed As Boolean
+    Friend gBypassRefreshPrompt As Boolean = False
 
     Public Enum FolderReviewContext
         ForScanning = 1
@@ -193,6 +197,13 @@
         gSentText = ""
 
         If MenuKeyStrokeOverRide Then Exit Sub
+
+        If e.Key = Key.F5 Then
+            gBypassRefreshPrompt = True
+            gProxyAction = "Refresh"
+            gMainWindow.SafelyPerformActionByProxy()
+            Exit Sub
+        End If
 
         Select Case e.Key.ToString
 

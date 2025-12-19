@@ -14,9 +14,9 @@
 
     End Sub
 
-    
 
-    'can't databind radioboxes, the following is a work around
+
+    'can't databind radio boxes, the following is a work around
     Private Sub OptionsWindow_Loaded(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles Me.Loaded
 
         Me.rbDockLeft.IsChecked = My.Settings.DockLeft
@@ -91,42 +91,6 @@
         Me.btnFoldersToViewInFolderWindow.IsEnabled = gFolderButtonsOnOptionsWindowEnabled
 
     End Sub
-
-    'Private Sub cbVeiwRead_Unchecked(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs)
-
-    '    If cbVeiwRead.IsChecked Or cbViewUnread.IsChecked Then
-    '    Else
-    '        ShowMessageBox("FileFriendly", _
-    '               CustomDialog.CustomDialogIcons.Warning, _
-    '               "Note!", _
-    '               "Read and unread shouldn`t both be unchecked at the same time.", _
-    '               "If you uncheck them both then there will be nothing to review!", _
-    '               "", _
-    '               CustomDialog.CustomDialogIcons.None, _
-    '               CustomDialog.CustomDialogButtons.OK, _
-    '               CustomDialog.CustomDialogResults.OK)
-    '    End If
-
-    'End Sub
-
-
-    'Private Sub cbVeiwAll_Unchecked(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs)
-
-    '    If cbViewFolders.IsChecked Or cbViewInbox.IsChecked Or cbViewSent.IsChecked Then
-    '    Else
-    '        ShowMessageBox("FileFriendly", _
-    '               CustomDialog.CustomDialogIcons.Warning, _
-    '               "Note!", _
-    '               "View inbox, sent items and folders shouldn`t all be unchecked at the same time.", _
-    '               "If you uncheck them all then there will be nothing to review!", _
-    '               "", _
-    '               CustomDialog.CustomDialogIcons.None, _
-    '               CustomDialog.CustomDialogButtons.OK, _
-    '               CustomDialog.CustomDialogResults.OK)
-    '    End If
-
-    'End Sub
-
 
     Private Sub cbScanInbox_Unchecked(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles cbScanInbox.Unchecked, cbScanSent.Unchecked, cbScanAllFolders.Unchecked
 

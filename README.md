@@ -1,4 +1,4 @@
-# Overview - FileFriendly v2 (2025-12-15)
+# Overview - FileFriendly v2.1 (2025-12-19)
 
 File Friendly works with Microsoft Outlook® to quickly and easily file
 your e-mails exactly where you need them to be.

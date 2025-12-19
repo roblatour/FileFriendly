@@ -20,7 +20,7 @@
         "Yammer Root"
     }
 
-    ' Folders whose entire subtree should be excluded (unchecked) by Recommended.
+    ' Folders whose entire sub-tree should be excluded (unchecked) by Recommended.
     ' Case-insensitive match against Branch.Name.
     Private Shared ReadOnly RecommendedExcludedFolderSubtrees As String() = {
         "Sync Issues",
@@ -122,7 +122,7 @@
                 Exit Sub
             End If
 
-            ' Build lookups for excluded single folders and entire subtrees.
+            ' Build look ups for excluded single folders and entire sub-trees.
             Dim excluded As New System.Collections.Generic.HashSet(Of String)(
                 RecommendedExcludedFolderNames,
                 System.StringComparer.OrdinalIgnoreCase)
@@ -146,7 +146,7 @@
 
         Dim folderName As String = branch.Name
 
-        ' If any ancestor is an excluded-subtree folder, everything below is unchecked.
+        ' If any ancestor is an excluded-sub-tree folder, everything below is unchecked.
         Dim thisIsExcludedSubtreeRoot As Boolean = False
         If folderName IsNot Nothing AndAlso excludedSubtrees.Contains(folderName) Then
             thisIsExcludedSubtreeRoot = True
