@@ -23,6 +23,9 @@ the time you are used to.
   showing where related emails are stored in different folders or
   mailboxes.
 
+- Provides a consolidate inbox view: If you have multiple inboxes the
+  program can provide a consolidated view of them all.
+
 - Quick Actions: Abbreviate folder choices, file multiple emails at
   once, and use keyboard shortcuts for efficiency.
 
