@@ -287,8 +287,11 @@
                     gSentText = "`"
                 End If
 
-            Case "A" To "Z"
-                If ShiftOn Then
+            Case "A" To "Z", " "
+
+                If e.Key.ToString = "Space" Then
+                    gSentText = " "
+                ElseIf ShiftOn Then
                     gSentText = e.Key.ToString
                 Else
                     gSentText = e.Key.ToString.ToLower
@@ -515,23 +518,6 @@
         End Try
 
         Return ReturnCode
-
-    End Function
-
-    <System.Diagnostics.DebuggerStepThrough()> Friend Function QuickFilter(ByVal InputString As String, ByVal Filter As String) As String
-
-        Dim OutputValue As String = ""
-        Try
-            Dim x As Int32
-            For x = 1 To Len(InputString)
-                If Filter.IndexOf(Mid(InputString, x, 1)) = -1 Then
-                Else
-                    OutputValue &= Mid(InputString, x, 1)
-                End If
-            Next
-        Catch ex As Exception
-        End Try
-        Return OutputValue
 
     End Function
 

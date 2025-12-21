@@ -517,6 +517,16 @@
                 QuickFilterWord = Microsoft.VisualBasic.Left(QuickFilterWord, QuickFilterWord.Length - 1)
             End If
         Else
+
+            If QuickFilterWord.Length = 0 Then
+                'first character must be a letter or number
+                Dim ch As Char = IncomingText(0)
+                If (ch < "A"c OrElse ch > "Z"c) AndAlso (ch < "a"c OrElse ch > "z"c) AndAlso (ch < "0"c OrElse ch > "9"c) Then
+                    'invalid first character
+                    Exit Sub
+                End If
+            End If
+
             QuickFilterWord &= IncomingText
         End If
 
