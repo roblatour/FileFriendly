@@ -6,6 +6,8 @@ Namespace TreeViewWithCheckBoxes
     Public Class FooViewModel
         Implements INotifyPropertyChanged
 
+        ' the FooViewModel provides the logic and data structure for a tree view with checkboxes, enabling folder selection and state propagation in a WPF UI.
+
 #Region "Data"
 
         Public _Parent As FooViewModel
@@ -32,29 +34,6 @@ Namespace TreeViewWithCheckBoxes
             Dim ReturnValues As List(Of FooViewModel) = New List(Of FooViewModel)
 
             Try
-
-                'Dim ChildList2 As New List(Of FooViewModel)
-                'ChildList2.Add(New FooViewModel("Thing 1"))
-                'ChildList2.Add(New FooViewModel("Thing 2"))
-                'ChildList2.Add(New FooViewModel("Thing 3"))
-                'Dim root2 As New FooViewModel("Things Numeric") With {.IsInitiallySelected = True, .Children = ChildList2}
-
-                'Dim ChildList3 As New List(Of FooViewModel)
-                'ChildList3.Add(New FooViewModel("Thing A"))
-                'ChildList3.Add(New FooViewModel("Thing B"))
-                'ChildList3.Add(New FooViewModel("Thing C"))
-                'Dim root3 As New FooViewModel("Things Alphabetic") With {.IsInitiallySelected = True, .Children = ChildList3}
-
-                ''root2.IsChecked = True
-
-                'Dim ChildList0 As New List(Of FooViewModel)
-                'ChildList0.Add(root2)
-                'ChildList0.Add(root3)
-                'Dim root As New FooViewModel("All Things") With {.IsInitiallySelected = True, .Children = ChildList0}
-
-                'ReturnValues.Add(root)
-
-                ''*******************
 
                 Dim strCollectionOfExcludedFolders As System.Collections.Specialized.StringCollection = New System.Collections.Specialized.StringCollection
 

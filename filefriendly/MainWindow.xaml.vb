@@ -1,9 +1,12 @@
 ﻿Imports System.Diagnostics.Eventing.Reader
+Imports System.Linq
 Imports System.Management
 Imports System.Net
 Imports System.Security.Policy
 Imports System.Threading
 Imports System.Windows
+Imports Microsoft.Office.Interop
+Imports System.Windows.Threading
 
 Class MainWindow
     Inherits Window
@@ -15,10 +18,6 @@ Class MainWindow
     Private gThresholdForReportingProgressOnTheProgressBar As Double
 
     Private gSuppressUpdatesToDetailBox As Boolean = False
-
-    Private gEmailExcludeList As String = ""
-
-    Private FileCommand As System.Windows.Forms.TextBox = New System.Windows.Forms.TextBox
 
     Enum ActionType As Integer
         Hide = 1
@@ -73,7 +72,7 @@ Class MainWindow
 
     Private UniqueSubjectsMap As New Dictionary(Of String, Dictionary(Of Integer, Int16))(StringComparer.Ordinal)
 
-    Private gOriginalWidthForm, gOriginalWidthSubject, gOriginalWidthTo, gOriginalWidthFrom, gOriginalWidthDate As Integer
+    Private gOriginalWidthSubject, gOriginalWidthTo, gOriginalWidthFrom, gOriginalWidthDate As Integer
 
     Private gViewSent As Boolean = True
     Private gViewInbox As Boolean = True
@@ -103,6 +102,8 @@ Class MainWindow
         Friend IsUnread As Boolean
         Friend Body As String
         Friend Attempt As Integer
+        Friend MailItem As Microsoft.Office.Interop.Outlook.MailItem
+        Friend Folder As Microsoft.Office.Interop.Outlook.MAPIFolder
     End Structure
 
     Private ReadOnly gQueuedEmailEvents As New Queue(Of QueuedEmailEvent)
@@ -137,8 +138,6 @@ Class MainWindow
     Private oMailItem As Microsoft.Office.Interop.Outlook.MailItem
     Private oTargetFolder As Microsoft.Office.Interop.Outlook.MAPIFolder
 
-    Private gOutlookProcessId As Integer = -1
-    Private gOutlookMonitorTimer As System.Windows.Threading.DispatcherTimer
     Private gOutlookQuitHooked As Boolean = False
 
     ' MD5 instance used by ComputeTrailerHash
@@ -174,7 +173,7 @@ Class MainWindow
         ' This call is required by the Windows Form Designer.
         InitializeComponent()
 
-        ' Add any initialization after the InitializeComponent() call.
+        ' Add any initialization after the InitializeComponent() call.        MainWindow.Visibility = Windows.Visibility.Visible
         EnsureOnlyOneInstanceOfApp()
 
         gMainWindow = Me
@@ -189,8 +188,14 @@ Class MainWindow
     End Sub
     Private CloseWindow As New System.Windows.Forms.MethodInvoker(AddressOf CloseWindowNow)
     Private Sub CloseWindowNow()
+
+        Me.Dispatcher.BeginInvoke(Sub()
+                                      MainWindow.Visibility = Windows.Visibility.Hidden
+                                  End Sub)
+
         Me.Close()
     End Sub
+
 
     Private Sub MainWindow_Activated(ByVal sender As Object, ByVal e As System.EventArgs) Handles Me.Activated
 
@@ -207,10 +212,12 @@ Class MainWindow
 
     Private Sub MainWindow_Loaded(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles Me.Loaded
 
+#If DEBUG Then
+        Console.WriteLine("******************************************************************************************")
+#End If
+
         Try
-
             'Ensure Settings are kept thru an upgrade
-
             MainWindow.Visibility = Windows.Visibility.Hidden
 
             ' Verify Outlook is available 
@@ -370,6 +377,23 @@ Class MainWindow
 
             MemoryManagement.FlushMemory()
 
+            ' start monitoring Outlook for new emails after a short delay to allow the main window to finish loading
+
+            Dim monitoringInitTimer As New DispatcherTimer() With {
+             .Interval = TimeSpan.FromMilliseconds(500)
+             }
+
+            AddHandler monitoringInitTimer.Tick, Sub()
+                                                     monitoringInitTimer.Stop()
+                                                     RemoveHandler monitoringInitTimer.Tick, Nothing
+                                                     Try
+                                                         InitializeMonitoringOfOutlookEvents()
+                                                     Catch
+                                                     End Try
+                                                 End Sub
+            monitoringInitTimer.Start()
+            Thread.Sleep(500)
+
         Catch ex As Exception
             MsgBox(ex.ToString, MsgBoxStyle.OkOnly, "FileFriendly - Loading Error")
         End Try
@@ -465,9 +489,7 @@ Class MainWindow
             End If
         End If
 
-        StopOutlookMonitor()
-        UnhookOutlookQuitHandler()
-        ClearEmailMonitoring()
+        ClearMonitoringOfOutlookEvents()
 
         GracefulShutdown()
 
@@ -692,9 +714,8 @@ Class MainWindow
 
         gIsRefreshing = True
         gCancelRefresh = False
-        If gQueuedEmailEventTimer IsNot Nothing Then
-            gQueuedEmailEventTimer.Stop()
-        End If
+        gQueuedEmailEventTimer?.Stop()
+
         UpdateRefreshMenuState()
 
         gViewInbox = gRefreshInbox
@@ -738,18 +759,6 @@ Class MainWindow
         gCancelRefresh = False
         UpdateRefreshMenuState()
         ScheduleQueuedEmailProcessing()
-
-        Dim monitoringInitTimer As New System.Windows.Threading.DispatcherTimer()
-        monitoringInitTimer.Interval = TimeSpan.FromMilliseconds(500)
-        AddHandler monitoringInitTimer.Tick, Sub()
-                                                 monitoringInitTimer.Stop()
-                                                 RemoveHandler monitoringInitTimer.Tick, Nothing
-                                                 Try
-                                                     InitializeEmailMonitoring()
-                                                 Catch
-                                                 End Try
-                                             End Sub
-        monitoringInitTimer.Start()
 
         MenuOptionEnabled("Options", True)
 
@@ -797,59 +806,7 @@ Class MainWindow
 
     End Sub
 
-
-    Dim Timer1 As System.Windows.Threading.DispatcherTimer
-    'Delegate Sub TimerControlCallback(ByVal [Command] As String, ByVal [TimeTakenToProcessFiles] As Integer)
-
-    ' Add this field to hold the Tick handler delegate
-    Private ReadOnly Timer1TickHandler As New EventHandler(AddressOf Timer1_Tick)
-
-    Private Sub TimerControl(ByVal [Command] As String, ByVal [TimeTakenToProcessFiles] As Integer)
-
-        If [Command] = "Start" Then
-
-            Dim UpdateProgressBarAfterThisManyMilliSeconds As Double = 300
-
-            Dim RemainingRecords As Double = ProgressBar1.Maximum - ProgressBar1.Value
-
-            Dim EstimatedTimeToComplete As Double = [TimeTakenToProcessFiles] * My.Settings.RatioOfRecommendationToProcessingTime
-
-            ' calculate how far the progress bar should progress in a second
-            lProgressBarUpdateUsedByTimer = RemainingRecords / (EstimatedTimeToComplete / 1000)
-            ' calculate how far the progress bar should progress in each fraction of a second
-            lProgressBarUpdateUsedByTimer *= (UpdateProgressBarAfterThisManyMilliSeconds / 1000)
-
-
-            Timer1 = New System.Windows.Threading.DispatcherTimer(Windows.Threading.DispatcherPriority.Send)
-            ' Use the cached delegate instead of AddressOf directly
-            AddHandler Timer1.Tick, Timer1TickHandler
-            Timer1.IsEnabled = True
-            Timer1.Interval = TimeSpan.FromMilliseconds(250)
-            Timer1.Start()
-
-        Else
-
-            Timer1.Stop()
-            Timer1.IsEnabled = False
-            ' Use the cached delegate here as well
-            RemoveHandler Timer1.Tick, Timer1TickHandler
-            Timer1 = Nothing
-
-        End If
-
-    End Sub
-
     Private lProgressBareRefreshingThresholdCounter As Integer = 0
-    Private lProgressBarUpdateUsedByTimer As Double
-    Friend Sub Timer1_Tick()
-
-        If (ProgressBar1.Value + lProgressBarUpdateUsedByTimer) <= ProgressBar1.Maximum Then
-            ProgressBar1.Value += lProgressBarUpdateUsedByTimer
-        Else
-            ProgressBar1.Value = ProgressBar1.Maximum
-        End If
-
-    End Sub
 
     Delegate Sub SetFolderNameTextCallback(ByVal [text] As String)
     Private Sub SetFoldersNameText(ByVal [text] As String)
@@ -1090,8 +1047,6 @@ Class MainWindow
                 Return
             End If
 
-
-            Dim lFirstEntry As Boolean = True
             Dim lCurrentSubjectPlusTrailer As String = ""
             Dim lPreviousSubjectPlusTrailer As String = ""
 
@@ -1517,23 +1472,6 @@ Class MainWindow
 
     End Sub
 
-
-    Delegate Sub GetListViewSelectedItemCallback()
-    Private Sub GetListViewSelectedItem()
-
-        Try
-            If Me.ListView1.SelectedItems.Count = 0 Then
-                gCurrentlySelectedListViewItemIndex = 0
-            Else
-                Dim selectedItem As ListViewRowClass = CType(Me.ListView1.SelectedItems(0), ListViewRowClass)
-                gCurrentlySelectedListViewItemIndex = selectedItem.Index
-            End If
-        Catch ex As Exception
-
-        End Try
-
-    End Sub
-
     Delegate Sub SetListViewSelectedItemCallback()
     Private Sub SetListViewSelectedItem()
 
@@ -1574,7 +1512,6 @@ Class MainWindow
     End Sub
 
     Private gRefreshQueued As Boolean = False
-    Private gRefreshTimer As System.Windows.Threading.DispatcherTimer
 
     Private Sub RefreshGrid(ByVal InitialLoad As Boolean, ByVal MSOutlookDrivenEvent As Boolean)
 
@@ -1587,9 +1524,7 @@ Class MainWindow
 
             gIsRefreshing = True
 
-            If gQueuedEmailEventTimer IsNot Nothing Then
-                gQueuedEmailEventTimer.Stop()
-            End If
+            gQueuedEmailEventTimer?.Stop()
 
             ' Remove arrow from previously sorted header
             If _lastheaderClicked IsNot Nothing Then
@@ -1598,9 +1533,9 @@ Class MainWindow
 
             BlankOutDetails()
 
-            Dim t As System.Threading.Thread
-            t = New System.Threading.Thread(Sub() RefreshBackGroundTask(InitialLoad, MSOutlookDrivenEvent))
-            t.IsBackground = True
+            Dim t As New Thread(Sub() RefreshBackGroundTask(InitialLoad, MSOutlookDrivenEvent)) With {
+            .IsBackground = True
+            }
             t.Start()
 
         Catch ex As Exception
@@ -1609,7 +1544,7 @@ Class MainWindow
 
     End Sub
 
-    Private Collection_of_folders_to_exclude As System.Collections.Specialized.StringCollection = New System.Collections.Specialized.StringCollection
+    Private Collection_of_folders_to_exclude = New System.Collections.Specialized.StringCollection
     Private Collection_of_folders_to_exclude_is_empty As Boolean = True
 
     Private Sub RefreshBackGroundTask(ByVal InitialLoad As Boolean, ByVal MSOutlookDrivenEvent As Boolean)
@@ -1774,9 +1709,8 @@ CleanExit:
         Try
 
             gFolderButtonsOnOptionsWindowEnabled = False
-            If gOptionsWindow IsNot Nothing Then
-                gOptionsWindow.SafelyEnableOptionsFolderButtons()
-            End If
+
+            gOptionsWindow?.SafelyEnableOptionsFolderButtons()
 
             ' Hide Mailbox column when there is only one mailbox
             UpdateMailboxColumnVisibility()
@@ -1810,8 +1744,6 @@ CleanExit:
 
             ' Detect special folders across all mailboxes
             gDeletedFolderIndex = -1
-            gInboxFolderIndex = -1
-            gSentFolderIndex = -1
             gInboxFolderIndices.Clear()
             gSentFolderIndices.Clear()
             gStoreDeleteFolders.Clear()
@@ -1829,22 +1761,20 @@ CleanExit:
                 ' Track Inbox folders globally and per mailbox
                 If nameUpper = "INBOX" Then
                     gInboxFolderIndices.Add(x)
-                    If gInboxFolderIndex = -1 Then gInboxFolderIndex = x
+                    Continue For
                 End If
 
                 ' Track Sent folders globally and per mailbox
-                If nameUpper = "SENT ITEMS" OrElse nameUpper = "SENT" Then
+                If (New String() {"SENT", "SENT ITEMS", "SENT MAIL"}).Contains(nameUpper) Then
                     gSentFolderIndices.Add(x)
-                    If gSentFolderIndex = -1 Then gSentFolderIndex = x
+                    Continue For
                 End If
 
                 ' Figure out a suitable delete folder for this store:
-                ' Prefer Deleted Items, then Deleted, then Trash.
-                Dim isDeletedItems As Boolean = (nameUpper = "DELETED ITEMS")
-                Dim isDeleted As Boolean = (nameUpper = "DELETED")
-                Dim isTrash As Boolean = (nameUpper = "TRASH")
 
-                If Not (isDeletedItems OrElse isDeleted OrElse isTrash) Then
+                Dim isDeleted As Boolean = (New String() {"DELETED ITEMS", "DELETED", "TRASH"}).Contains(nameUpper)
+
+                If Not isDeleted Then
                     Continue For
                 End If
 
@@ -1877,20 +1807,19 @@ CleanExit:
 
                 ' Maintain backwards‑compatible global deleted index for legacy callers:
                 ' pick the first 'Deleted Items' we see, then fall back to any previous.
-                If gDeletedFolderIndex = -1 AndAlso (isDeletedItems OrElse isDeleted OrElse isTrash) Then
+                If (gDeletedFolderIndex = -1) AndAlso isDeleted Then
                     gDeletedFolderIndex = x
                 End If
 
             Next
 
+#If DEBUG Then
             ' Debug: ensure we found at least some inbox/sent folders
-            ' MsgBox("Inboxes: " & gInboxFolderIndices.Count & " Sent: " & gSentFolderIndices.Count)
+            Console.WriteLine("Inboxes: " & gInboxFolderIndices.Count & " Sent: " & gSentFolderIndices.Count)
+#End If
 
             gFolderButtonsOnOptionsWindowEnabled = True
-            If gOptionsWindow IsNot Nothing Then
-                gOptionsWindow.SafelyEnableOptionsFolderButtons()
-            End If
-
+            gOptionsWindow?.SafelyEnableOptionsFolderButtons()
 
             Dim ToolTipMessage As String = ""
             Dim ProgressBarMaxValue As Double
@@ -2137,7 +2066,7 @@ CleanExit:
             ReDim EmailTable(lTotalEMailsToBeReviewed)
         End If
 
-        Dim strCollection As System.Collections.Specialized.StringCollection = New System.Collections.Specialized.StringCollection
+        Dim strCollection = New System.Collections.Specialized.StringCollection
         strCollection = My.Settings.ExcludedScanFolders 'list of all folders to be excluded from scan
 
         With lBlankEMailDetailRecord
@@ -2205,11 +2134,13 @@ CleanExit:
         'Step 2 sort email table so that subjects are grouped together
         '***************************************************************************
 
-        Dim lEMailTableSorter As New EMailTableSorter
-        lEMailTableSorter.PrimarySortColumn = 1 ' subject
-        lEMailTableSorter.PrimaryOrder = SortOrder.Ascending
-        lEMailTableSorter.SecondarySortColumn = 4 ' date and time 
-        lEMailTableSorter.SecondaryOrder = SortOrder.Descending
+        Dim lEMailTableSorter As New EMailTableSorter With {
+           .PrimarySortColumn = 1, ' subject
+           .PrimaryOrder = SortOrder.Ascending,
+           .SecondarySortColumn = 4, ' date and time
+           .SecondaryOrder = SortOrder.Descending
+           }
+
         Array.Sort(EmailTable, lEMailTableSorter)
         lEMailTableSorter = Nothing
 
@@ -2330,21 +2261,10 @@ EarlyExit:
     'moved here for performance gains
 
     Private lBlankEMailDetailRecord As StructureOfEmailDetails
-    Private lws As String
     Private lWhenSent As Boolean
     Private lLastIndex As Integer
 
-    Const olFormatHTML = 2
-    Const olFormatPlain = 1
-    Const olFormatRichText = 3
-    Const olFormatUnspecified = 0
-
     Private FlipFlop As Boolean = True
-
-    Const WhenSentQuery As String = "SELECT EntryID, Subject, To, SenderEmailAddress, SentOn, UnRead from Folder Where MessageClass='IPM.Note'"
-    Const WhenReceivedQuery As String = "SELECT EntryID, Subject, To, SenderEmailAddress, ReceivedTime, UnRead from Folder Where MessageClass='IPM.Note'"
-
-    Private Query As String = "" ' moved here for efficiency
 
     Private Sub ProcessAllMailItemsInAFolder(ByVal originalFolder As Int16,
                              ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder,
@@ -2496,16 +2416,6 @@ EarlyExit:
 
 #Region "Establish and set rankings"
 
-    Structure StructureOfEmailIDTable
-        Friend EMailID As String
-        Friend Count As Integer
-    End Structure
-    Structure StructureOfEmailAddressTableEntry
-        Friend Entry() As StructureOfEmailIDTable
-    End Structure
-    Dim EmailIDFolderTable() As StructureOfEmailAddressTableEntry
-    Dim EmailIDFolderTableIndex As Integer
-
     Private Sub EstablishRecommendations()
 
         If gRefreshAll Then
@@ -2518,11 +2428,12 @@ EarlyExit:
 
             'A second sort of the email table is required to subjects in order with their trailers
 
-            Dim lEMailTableSorter As New EMailTableSorter
-            lEMailTableSorter.PrimarySortColumn = 1 ' subject
-            lEMailTableSorter.PrimaryOrder = SortOrder.Ascending
-            lEMailTableSorter.SecondarySortColumn = 4 ' date and time 
-            lEMailTableSorter.SecondaryOrder = SortOrder.Descending
+            Dim lEMailTableSorter As New EMailTableSorter With {
+            .PrimarySortColumn = 1, ' subject
+            .PrimaryOrder = SortOrder.Ascending,
+            .SecondarySortColumn = 4, ' date and time 
+            .SecondaryOrder = SortOrder.Descending
+            }
             Array.Sort(EmailTable, lEMailTableSorter)
             lEMailTableSorter = Nothing
 
@@ -3042,19 +2953,21 @@ EarlyExit:
 
     Private Function CaptureSelectionSnapshot() As SelectionSnapshot
 
-        Dim snap As New SelectionSnapshot
-        snap.Entries = New List(Of SelectionEntry)
-        snap.FirstIndex = 0
+        Dim snap As New SelectionSnapshot With {
+        .Entries = New List(Of SelectionEntry),
+        .FirstIndex = 0
+        }
 
         For Each obj In ListView1.SelectedItems
             Dim row = TryCast(obj, ListViewRowClass)
             If row Is Nothing Then Continue For
             If String.IsNullOrEmpty(row.OutlookEntryID) Then Continue For
 
-            Dim entry As New SelectionEntry
-            entry.OutlookEntryId = row.OutlookEntryID
-            entry.ChainKey = BuildChainKey(row)
-            entry.Index = row.Index
+            Dim entry As New SelectionEntry With {
+                .OutlookEntryId = row.OutlookEntryID,
+                .ChainKey = BuildChainKey(row),
+                .Index = row.Index
+            }
             snap.Entries.Add(entry)
         Next
 
@@ -3512,7 +3425,7 @@ EarlyExit:
             End With
 
         Catch ex As Exception
-            ' consider logging ex
+
         Finally
             UpdateMainMessageLine()
         End Try
@@ -3692,11 +3605,6 @@ EarlyExit:
                 Exit Sub
             End If
 
-            ' Add to suppress list to prevent event loop
-            'SyncLock gSuppressEventLock
-            '    gSuppressEventForEntryIds.Add(entryId)
-            'End SyncLock
-
             ' Toggle the unread flag in Outlook (this can also hit RPC errors)
             Dim toggleSucceeded As Boolean = False
             Try
@@ -3707,10 +3615,6 @@ EarlyExit:
             Catch comEx As System.Runtime.InteropServices.COMException
                 Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
                 Const RPC_E_DISCONNECTED As Integer = &H800706BE
-
-                'SyncLock gSuppressEventLock
-                '    gSuppressEventForEntryIds.Remove(entryId)
-                'End SyncLock
 
                 If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
                     MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
@@ -3726,9 +3630,6 @@ EarlyExit:
                 End If
                 Exit Sub
             Catch ex As Exception
-                'SyncLock gSuppressEventLock
-                '    gSuppressEventForEntryIds.Remove(entryId)
-                'End SyncLock
 
                 MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
                        "Details: " & ex.Message,
@@ -3743,12 +3644,6 @@ EarlyExit:
 
             ' Reflect the new state in the ListView row
             Dim index As Integer = ListView1.SelectedIndex
-            'If index < 0 Then
-            '    SyncLock gSuppressEventLock
-            '        gSuppressEventForEntryIds.Remove(entryId)
-            '    End SyncLock
-            '    Exit Sub
-            'End If
 
             Dim updatedRow As ListViewRowClass = CType(ListView1.Items(index), ListViewRowClass)
 
@@ -4114,9 +4009,6 @@ EarlyExit:
         Me.Close()
 
     End Sub
-
-    Friend Declare Function GetDesktopWindow Lib "user32" () As IntPtr
-
     Private Sub OpenAnEmail()
 
         ' Show wait cursor while we do COM work
@@ -4910,14 +4802,22 @@ EarlyExit:
     Private Sub ClearOutlookStartingMessage()
         Try
             ' Only clear if we are still showing the "Starting Outlook" text
-            If TypeOf Me.lblMainMessageLine.Content Is String Then
-                Dim current As String = CStr(Me.lblMainMessageLine.Content)
-                If current.Contains("Starting Outlook") Then
-                    Me.Dispatcher.BeginInvoke(
-                        New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
-                        New Object() {"0 e-mails"})
-                End If
-            End If
+            'If TypeOf Me.lblMainMessageLine.Content Is String Then
+            '    Dim current As String = CStr(Me.lblMainMessageLine.Content)
+            '    If current.Contains("Starting Outlook") Then
+            'Me.Dispatcher.BeginInvoke(
+            '            New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
+            '            New Object() {"0 e-mails"})
+
+            Try
+                Me.Dispatcher.BeginInvoke(
+                New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
+                New Object() {"Outlook started"})
+            Catch
+            End Try
+
+            '    End If
+            'End If
         Catch
         End Try
     End Sub
@@ -4928,7 +4828,9 @@ EarlyExit:
             For Each p As Process In Process.GetProcessesByName("OUTLOOK")
                 Try
                     If p.SessionId = currentSessionId AndAlso Not p.HasExited Then
-                        Return p.Id
+                        If p.MainWindowHandle <> IntPtr.Zero Then
+                            Return p.Id
+                        End If
                     End If
                 Catch
                 End Try
@@ -4944,36 +4846,48 @@ EarlyExit:
 
     Private Function EnsureOutlookIsRunning() As Boolean
 
+        If Not Me.Dispatcher.CheckAccess() Then
+            Return CBool(Me.Dispatcher.Invoke(New Func(Of Boolean)(AddressOf EnsureOutlookIsRunning)))
+        End If
+
         Dim originalCursor As System.Windows.Input.Cursor = Nothing
         Try
-            If Dispatcher.CheckAccess() Then
-                originalCursor = Me.Cursor
-            End If
+            originalCursor = Me.Cursor
         Catch
         End Try
 
         SetUiCursor(Cursors.Wait)
 
         Try
-            gOutlookProcessId = -1
             Dim repairOnly As Boolean = False
 
             If oApp IsNot Nothing AndAlso oNS IsNot Nothing Then
-                Try
-                    Dim dummy As Integer = oNS.Folders.Count
-                    Return True
-                Catch comEx As System.Runtime.InteropServices.COMException
-                    Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
-                    Const RPC_E_DISCONNECTED As Integer = &H800706BE
 
-                    If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
+                If Not System.Runtime.InteropServices.Marshal.IsComObject(oNS) Then
+                    repairOnly = True
+                    oNS = Nothing
+                    oApp = Nothing
+                Else
+                    Try
+                        Dim dummy As Integer = oNS.Folders.Count
+                        Return True
+                    Catch invalidEx As System.Runtime.InteropServices.InvalidComObjectException
                         repairOnly = True
                         oNS = Nothing
                         oApp = Nothing
-                    Else
-                        Throw
-                    End If
-                End Try
+                    Catch comEx As System.Runtime.InteropServices.COMException
+                        Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                        Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                        If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
+                            repairOnly = True
+                            oNS = Nothing
+                            oApp = Nothing
+                        Else
+                            Throw
+                        End If
+                    End Try
+                End If
             End If
 
             If Not repairOnly AndAlso Not IsOutlookProcessRunning() Then
@@ -4981,11 +4895,14 @@ EarlyExit:
                 Dim header As String = "FileFriendly - Start Outlook?"
                 Dim instruction As String = vbCrLf &
                     "Microsoft Outlook is not running." & vbCrLf & vbCrLf &
-                    "FileFriendly needs Outlook to be running in order to help file your e-mails." & vbCrLf & vbCrLf &
-                    "Would you like FileFriendly to automatically start Outlook for you?"
+                    "FileFriendly needs Outlook to be running to help file your e-mails." & vbCrLf & vbCrLf &
+                    "Would you like FileFriendly to automatically start Outlook for you now?"
                 Dim detail As String =
-                    "If you choose 'No', FileFriendly will close." & vbCrLf & "Later, if you wish, you can start Outlook and then afterwards start FileFriendly to avoid this message." & vbCrLf & vbCrLf &
-                    "If you choose 'Yes', FileFriendly will automatically start Outlook. Normally, Outlook will start fine. However, Outlook may ask you if you want to start it in safe mode - especially if Outlook had previously crashed. Ideally, Outlook should be started normally."
+                    "If you choose 'Yes', FileFriendly will automatically start Outlook." & vbCrLf & vbCrLf &
+                    "If you choose 'No', FileFriendly will close." & vbCrLf & "Later, if you wish, you can manually start Outlook and then FileFriendly."
+
+
+                If My.Settings.SoundAlert Then Beep()
 
                 Dim response As CustomDialog.CustomDialogResults =
                     ShowMessageBox(header,
@@ -5009,7 +4926,6 @@ EarlyExit:
                                    CustomDialog.CustomDialogButtons.OK,
                                    CustomDialog.CustomDialogResults.OK)
 
-                    'GracefulShutdown()
                     Application.Current.Shutdown() ' exit the program now
                     Return False
                 End If
@@ -5020,17 +4936,22 @@ EarlyExit:
                     Dim startInfo As New ProcessStartInfo("outlook.exe")
                     Process.Start(startInfo)
                 Catch exStart As Exception
+
                     ClearOutlookStartingMessage()
+
+                    If My.Settings.SoundAlert Then Beep()
+
                     MsgBox("FileFriendly cannot start Microsoft Outlook." & vbCrLf & vbCrLf &
                            "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
                            "Details: " & exStart.Message,
                            MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Outlook Not Available")
+                           "FileFriendly - Outlook is not Available")
                     Return False
+
                 End Try
 
                 Dim startedOk As Boolean = False
-                Dim deadline As Date = Date.UtcNow.AddSeconds(15)
+                Dim deadline As Date = Date.UtcNow.AddSeconds(60)
 
                 Do
                     System.Threading.Thread.Sleep(500)
@@ -5054,12 +4975,16 @@ EarlyExit:
                     If startedOk Then Exit Do
                 Loop While Date.UtcNow < deadline
 
-                ClearOutlookStartingMessage()
+                ScheduleRefreshGrid()
+
             End If
 
             Try
                 oApp = CType(CreateObject("Outlook.Application"), Microsoft.Office.Interop.Outlook.Application)
             Catch exCreate As Exception
+
+                If My.Settings.SoundAlert Then Beep()
+
                 MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
                        "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
                        "Details: " & exCreate.Message,
@@ -5074,6 +4999,9 @@ EarlyExit:
                 oNS = oApp.GetNamespace("MAPI")
                 Dim dummy As Integer = oNS.Folders.Count
             Catch exNs As System.Exception
+
+                If My.Settings.SoundAlert Then Beep()
+
                 MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
                        "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
                        "Details: " & exNs.Message,
@@ -5084,11 +5012,12 @@ EarlyExit:
                 Return False
             End Try
 
-            gOutlookProcessId = GetCurrentOutlookProcessId()
-            HookOutlookQuitHandler()
             Return True
 
         Catch ex As Exception
+
+            If My.Settings.SoundAlert Then Beep()
+
             MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
                    "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
                    "Details: " & ex.Message,
@@ -5107,112 +5036,51 @@ EarlyExit:
         End Try
 
     End Function
-
-    Private Sub StartOutlookMonitor()
-        Try
-            If gOutlookMonitorTimer Is Nothing Then
-                gOutlookMonitorTimer = New System.Windows.Threading.DispatcherTimer()
-                gOutlookMonitorTimer.Interval = TimeSpan.FromSeconds(5)
-                AddHandler gOutlookMonitorTimer.Tick, AddressOf OutlookMonitorTick
-            End If
-            gOutlookMonitorTimer.Start()
-        Catch
-        End Try
-    End Sub
-
-    Private Sub StopOutlookMonitor()
-        Try
-            If gOutlookMonitorTimer IsNot Nothing Then
-                gOutlookMonitorTimer.Stop()
-            End If
-        Catch
-        End Try
-    End Sub
-
-    Private Sub OutlookMonitorTick(ByVal sender As Object, ByVal e As EventArgs)
-        Try
-            Dim pid As Integer = GetCurrentOutlookProcessId()
-            If pid <= 0 Then
-                Return
-            End If
-
-            If gOutlookProcessId <> pid Then
-                gOutlookProcessId = pid
-                If EnsureOutlookIsRunning() Then
-                    InitializeEmailMonitoring()
-                    StopOutlookMonitor()
-                End If
-            End If
-        Catch
-        End Try
-    End Sub
-
-    Private Sub HookOutlookQuitHandler()
-        Try
-            If oApp IsNot Nothing AndAlso Not gOutlookQuitHooked Then
-                Dim quitEvents As Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event = TryCast(oApp, Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event)
-                If quitEvents IsNot Nothing Then
-                    AddHandler quitEvents.Quit, AddressOf OnOutlookQuit
-                    gOutlookQuitHooked = True
-                End If
-            End If
-        Catch
-        End Try
-    End Sub
-
-    Private Sub UnhookOutlookQuitHandler()
-        Try
-            If oApp IsNot Nothing AndAlso gOutlookQuitHooked Then
-                Dim quitEvents As Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event = TryCast(oApp, Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event)
-                If quitEvents IsNot Nothing Then
-                    RemoveHandler quitEvents.Quit, AddressOf OnOutlookQuit
-                End If
-            End If
-        Catch
-        Finally
-            gOutlookQuitHooked = False
-        End Try
-    End Sub
-
     Private Sub OnOutlookQuit()
+
         Try
-            UnhookOutlookQuitHandler()
-            ClearEmailMonitoring()
-            oApp = Nothing
-            oNS = Nothing
-            gOutlookProcessId = -1
 
-            Dim header As String = "FileFriendly - Outlook closing"
-            Dim instruction As String = vbCrLf &
-                "Microsoft Outlook is shutting down." & vbCrLf & vbCrLf &
-                "FileFriendly needs Outlook to stay running to work properly." & vbCrLf & vbCrLf &
-                "Would you like FileFriendly to restart Outlook now?"
-            Dim detail As String =
-                "Choose 'Yes' to restart Outlook immediately." & vbCrLf &
-                "Choose 'No' if you want to reopen Outlook yourself later." & vbCrLf & vbCrLf &
-                "FileFriendly will wait for Outlook to come back and then resume monitoring."
+            Dim previousProcessId As Integer = GetCurrentOutlookProcessId()
 
-            Dim response As CustomDialog.CustomDialogResults =
-                ShowMessageBox(header,
-                               CustomDialog.CustomDialogIcons.Question,
-                               instruction,
-                               "",
-                               detail,
-                               "",
-                               CustomDialog.CustomDialogIcons.None,
-                               CustomDialog.CustomDialogButtons.YesNo,
-                               CustomDialog.CustomDialogResults.Yes)
-
-            If response = CustomDialog.CustomDialogResults.Yes Then
-                If EnsureOutlookIsRunning() Then
-                    InitializeEmailMonitoring()
-                    Exit Sub
-                End If
+            If gOutlookEventHandler IsNot Nothing Then
+                gOutlookEventHandler.Dispose()
+                gOutlookEventHandler = Nothing
             End If
+            oNS = Nothing
+            oApp = Nothing
 
-            StartOutlookMonitor()
-        Catch
+            Dim restartThread As New Thread(Sub()
+                                                Try
+                                                    Dim quitDeadline As Date = Date.UtcNow.AddSeconds(30)
+                                                    If previousProcessId > 0 Then
+                                                        Do
+                                                            Try
+                                                                Dim p As Process = Process.GetProcessById(previousProcessId)
+                                                                If p.HasExited Then Exit Do
+                                                            Catch
+                                                                Exit Do
+                                                            End Try
+                                                            If Date.UtcNow >= quitDeadline Then Exit Do
+                                                            Thread.Sleep(500)
+                                                        Loop
+                                                    End If
+
+                                                    Me.Dispatcher.Invoke(Sub()
+                                                                             If EnsureOutlookIsRunning() Then
+                                                                                 InitializeMonitoringOfOutlookEvents()
+                                                                             End If
+                                                                         End Sub)
+                                                Catch
+                                                End Try
+                                            End Sub)
+            restartThread.IsBackground = True
+            restartThread.SetApartmentState(System.Threading.ApartmentState.STA)
+            restartThread.Start()
+
+        Catch ex As Exception
+            Console.WriteLine(ex.ToString)
         End Try
+
     End Sub
 
 #End Region
@@ -5397,7 +5265,7 @@ EarlyExit:
         Dim chain1Header As String = TryCast(chain1Column.Header, String)
         Dim chain2Header As String = TryCast(chain2Column.Header, String)
         Dim dateHeader As String = TryCast(dateColumn.Header, String)
-        Dim timeHeader As String = TryCast(timeColumn.Header, String)
+        'Dim timeHeader As String = TryCast(timeColumn.Header, String)
 
         Dim minFixedWidth As Double = 18
 
@@ -5408,7 +5276,7 @@ EarlyExit:
 
         ' Time width based on the widest possible time string for the current format,
         ' measured in both normal and bold, then taking the larger.
-        Dim widestTimeSample As Date = New Date(2000, 12, 31, 23, 59, 59)
+        Dim widestTimeSample = New Date(2000, 12, 31, 23, 59, 59)
         Dim widestTimeText As String
 
         Try
@@ -5585,9 +5453,11 @@ EarlyExit:
             gCurrentSortDirection = ListSortDirection.Ascending
         End If
 
-        Dim sorter As New FinalRecommendationTableSorter
-        sorter.PrimaryColumnToSort = column
-        sorter.SortOrder = direction
+        Dim sorter As New FinalRecommendationTableSorter With {
+          .PrimaryColumnToSort = column,
+          .SortOrder = direction
+        }
+
         Array.Sort(gFinalRecommendationTable, sorter)
 
         If _hasUserSorted Then
@@ -5663,9 +5533,10 @@ EarlyExit:
                         End If
                     End If
 
-                    Dim lFinalRecommendationTableSorter As New FinalRecommendationTableSorter
-                    lFinalRecommendationTableSorter.PrimaryColumnToSort = header
-                    lFinalRecommendationTableSorter.SortOrder = direction
+                    Dim lFinalRecommendationTableSorter As New FinalRecommendationTableSorter With {
+                        .PrimaryColumnToSort = header,
+                        .SortOrder = direction
+                    }
                     Array.Sort(gFinalRecommendationTable, lFinalRecommendationTableSorter)
                     lFinalRecommendationTableSorter = Nothing
 
@@ -5707,10 +5578,10 @@ EarlyExit:
 
 #Region "Real-Time Email Monitoring"
 
-    Private gFolderEventHandlers As New Dictionary(Of Integer, OutlookFolderEventHandler)(IntegerComparer.Instance)
+    Private gOutlookEventHandler As OutlookEventHandler
     Private ReadOnly gEventHandlerLock As New Object()
 
-    Public Sub InitializeEmailMonitoring()
+    Public Sub InitializeMonitoringOfOutlookEvents()
 
         Try
 
@@ -5723,46 +5594,26 @@ EarlyExit:
                 If oNS Is Nothing Then Exit Sub
             End If
 
-            Dim monitoringThread As New System.Threading.Thread(Sub()
-                                                                    Try
-                                                                        SyncLock gEventHandlerLock
+            If GetCurrentOutlookProcessId() <= 0 Then Exit Sub
 
-                                                                            ClearEmailMonitoring()
+            Dim monitoringThread As New Thread(Sub()
+                                                   Try
+                                                       Dim ns As Microsoft.Office.Interop.Outlook.NameSpace = oNS
 
-                                                                            For folderIndex As Integer = 0 To gFolderTable.Length - 1
-                                                                                Try
-                                                                                    Dim folderInfo As FolderInfo = gFolderTable(folderIndex)
-
-                                                                                    If folderInfo.DefaultItemType <> Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
-                                                                                        Continue For
-                                                                                    End If
-
-                                                                                    Dim ns As Microsoft.Office.Interop.Outlook.NameSpace = oNS
-                                                                                    If ns Is Nothing Then Continue For
-
-                                                                                    Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing
-                                                                                    Try
-                                                                                        folder = ns.GetFolderFromID(folderInfo.EntryID, folderInfo.StoreID)
-                                                                                    Catch
-                                                                                        Continue For
-                                                                                    End Try
-
-                                                                                    If folder Is Nothing Then Continue For
-
-                                                                                    Dim handler As New OutlookFolderEventHandler(Me, folderIndex, folderInfo.FolderPath, folder)
-                                                                                    gFolderEventHandlers(folderIndex) = handler
-
-                                                                                Catch ex As Exception
-                                                                                End Try
-                                                                            Next
-                                                                        End SyncLock
-                                                                    Catch ex As Exception
-                                                                    End Try
-                                                                End Sub)
-
-            monitoringThread.IsBackground = True
+                                                       SyncLock gEventHandlerLock
+                                                           If gOutlookEventHandler IsNot Nothing Then Return
+                                                           ClearMonitoringOfOutlookEvents()
+                                                           If ns Is Nothing Then Return
+                                                           gOutlookEventHandler = New OutlookEventHandler(Me, ns)
+                                                       End SyncLock
+                                                   Catch ex As Exception
+                                                   End Try
+                                               End Sub) With {
+            .IsBackground = True
+            }
             monitoringThread.SetApartmentState(System.Threading.ApartmentState.STA)
             monitoringThread.Start()
+            Thread.Sleep(500)
 
         Catch ex As Exception
         End Try
@@ -5805,13 +5656,13 @@ EarlyExit:
         End If
     End Sub
 
-    Public Sub ClearEmailMonitoring()
+    Public Sub ClearMonitoringOfOutlookEvents()
         Try
 
-            For Each handler In gFolderEventHandlers.Values
-                handler.Dispose()
-            Next
-            gFolderEventHandlers.Clear()
+            If gOutlookEventHandler IsNot Nothing Then
+                gOutlookEventHandler.Dispose()
+                gOutlookEventHandler = Nothing
+            End If
 
             SyncLock gListViewEntryIdsLock
                 gListViewEntryIdsByFolder.Clear()
@@ -5822,7 +5673,7 @@ EarlyExit:
 
     End Sub
 
-    Private Function QueueEmailEvent(ByVal eventType As QueuedEmailEventType, ByVal folderIndex As Integer, ByVal entryId As String, Optional ByVal subject As String = "", Optional ByVal toAddr As String = "", Optional ByVal fromAddr As String = "", Optional ByVal receivedTime As Date = Nothing, Optional ByVal isUnread As Boolean = False, Optional ByVal body As String = "", Optional ByVal attempt As Integer = 0) As Boolean
+    Private Function QueueEmailEvent(ByVal eventType As QueuedEmailEventType, ByVal folderIndex As Integer, ByVal entryId As String, Optional ByVal subject As String = "", Optional ByVal toAddr As String = "", Optional ByVal fromAddr As String = "", Optional ByVal receivedTime As Date = Nothing, Optional ByVal isUnread As Boolean = False, Optional ByVal body As String = "", Optional ByVal attempt As Integer = 0, Optional mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing, Optional ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing) As Boolean
 
         If Not gIsRefreshing Then
             Return False
@@ -5838,8 +5689,10 @@ EarlyExit:
             .ReceivedTime = receivedTime,
             .IsUnread = isUnread,
             .Body = If(body, String.Empty),
-            .Attempt = attempt
-        }
+            .Attempt = attempt,
+            .MailItem = mailItem,
+            .Folder = folder
+             }
 
         SyncLock gQueuedEmailEventsLock
             gQueuedEmailEvents.Enqueue(queued)
@@ -5868,7 +5721,7 @@ EarlyExit:
 
     End Sub
 
-    Private Sub ProcessQueuedEmailEvents(ByVal sender As Object, ByVal e As EventArgs)
+    Private Sub ProcessQueuedEmailEvents(ByVal sender As Object, ByVal e As EventArgs, Optional ByVal mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing, Optional ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing)
 
         If gIsRefreshing Then Return
 
@@ -5885,7 +5738,7 @@ EarlyExit:
         For Each queuedEvent In pending
             Select Case queuedEvent.EventType
                 Case QueuedEmailEventType.Added
-                    OnEmailAddedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId)
+                    OnEmailAddedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, mailItem, folder)
                 Case QueuedEmailEventType.Removed
                     OnEmailRemovedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId)
                 Case QueuedEmailEventType.Changed
@@ -5896,90 +5749,98 @@ EarlyExit:
     End Sub
 
 
+    Private EnsureUninteruptedProcessingOfOnEmailAddedFromEvent As New Object
 
-    Friend Sub OnEmailAddedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String)
+    Friend Sub OnEmailAddedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal mailItem As Microsoft.Office.Interop.Outlook.MailItem, ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder)
 
-        Try
-
-            If String.IsNullOrEmpty(entryId) OrElse folderIndex < 0 OrElse folderIndex >= gFolderTable.Length Then Return
-
-            If _MainWindow.PreventEventLoopForEntryId(entryId) Then
-            Else
-                Return
-            End If
-
-            SetUiCursor(Cursors.Wait)
-
-            If QueueEmailEvent(QueuedEmailEventType.Added, folderIndex, entryId) Then Return
-
-            Dim emailDetail As StructureOfEmailDetails = New StructureOfEmailDetails()
-            emailDetail.sOriginalFolderReferenceNumber = CShort(folderIndex)
-            emailDetail.sOutlookEntryID = entryId
+        SyncLock EnsureUninteruptedProcessingOfOnEmailAddedFromEvent
 
             Try
-                Dim folderInfo As FolderInfo = gFolderTable(folderIndex)
-                Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(folderInfo.EntryID, folderInfo.StoreID)
-                Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = TryCast(oNS.GetItemFromID(entryId, folderInfo.StoreID), Microsoft.Office.Interop.Outlook.MailItem)
 
-                If mailItem IsNot Nothing Then
+                If String.IsNullOrEmpty(entryId) OrElse folderIndex < 0 OrElse folderIndex >= gFolderTable.Length Then Return
 
-                    With emailDetail
+                SetUiCursor(Cursors.Wait)
 
-                        .sSubject = CleanUpSubjectLine(If(mailItem.Subject, String.Empty))
-                        .sTo = If(mailItem.To, String.Empty)
+                If QueueEmailEvent(QueuedEmailEventType.Added, folderIndex, entryId,,,,,,,, mailItem, folder) Then Return
 
-                        Dim friendlyFrom As String = ""
-                        Try
-                            If mailItem.Sender IsNot Nothing Then
-                                If String.Equals(mailItem.SenderEmailType, "SMTP", StringComparison.OrdinalIgnoreCase) Then
-                                    friendlyFrom = mailItem.SenderEmailAddress
-                                Else
-                                    Dim exUser As Microsoft.Office.Interop.Outlook.ExchangeUser =
-                                        TryCast(mailItem.Sender.GetExchangeUser(), Microsoft.Office.Interop.Outlook.ExchangeUser)
-                                    If exUser IsNot Nothing AndAlso Not String.IsNullOrEmpty(exUser.PrimarySmtpAddress) Then
-                                        friendlyFrom = exUser.PrimarySmtpAddress
-                                    Else
+                Dim emailDetail = New StructureOfEmailDetails() With {
+                    .sOriginalFolderReferenceNumber = CShort(folderIndex),
+                    .sOutlookEntryID = entryId
+                }
+
+                Try
+
+                    Dim folderInfo As FolderInfo = gFolderTable(folderIndex)
+
+                    If mailItem IsNot Nothing Then
+
+                        With emailDetail
+
+                            .sSubject = CleanUpSubjectLine(If(mailItem.Subject, String.Empty))
+                            .sTo = If(mailItem.To, String.Empty)
+
+                            Dim friendlyFrom As String = ""
+                            Try
+                                If mailItem.Sender IsNot Nothing Then
+                                    If String.Equals(mailItem.SenderEmailType, "SMTP", StringComparison.OrdinalIgnoreCase) Then
                                         friendlyFrom = mailItem.SenderEmailAddress
+                                    Else
+                                        Dim exUser As Microsoft.Office.Interop.Outlook.ExchangeUser =
+                                            TryCast(mailItem.Sender.GetExchangeUser(), Microsoft.Office.Interop.Outlook.ExchangeUser)
+                                        If exUser IsNot Nothing AndAlso Not String.IsNullOrEmpty(exUser.PrimarySmtpAddress) Then
+                                            friendlyFrom = exUser.PrimarySmtpAddress
+                                        Else
+                                            friendlyFrom = mailItem.SenderEmailAddress
+                                        End If
                                     End If
+                                Else
+                                    friendlyFrom = mailItem.SenderEmailAddress
                                 End If
-                            Else
+                            Catch
                                 friendlyFrom = mailItem.SenderEmailAddress
-                            End If
-                        Catch
-                            friendlyFrom = mailItem.SenderEmailAddress
-                        End Try
+                            End Try
 
-                        .sFrom = If(friendlyFrom, String.Empty)
-                        .sDateAndTime = mailItem.ReceivedTime
-                        .sUnRead = If(mailItem.UnRead, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
-                        .sMailBoxName = GetMailboxNameFromFolderPath(folderInfo.FolderPath, folderInfo.StoreID)
-                        .sBody = If(mailItem.Body, String.Empty)
+                            .sFrom = If(friendlyFrom, String.Empty)
+                            .sDateAndTime = mailItem.ReceivedTime
+                            .sUnRead = If(mailItem.UnRead, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
+                            .sMailBoxName = GetMailboxNameFromFolderPath(folderInfo.FolderPath, folderInfo.StoreID)
+                            .sBody = If(mailItem.Body, String.Empty)
 
-                    End With
+                        End With
 
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+                    End If
+
+                    If folder IsNot Nothing Then
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                    End If
+
+                Catch ex As Exception
+                    ex = ex
+                End Try
+
+                ' Ensure there is enough space in the email table when adding a new item
+                If EmailTableIndex > UBound(EmailTable) Then
+                    ReDim Preserve EmailTable(EmailTableIndex + EmailTableGrowth)
                 End If
+                EmailTable(EmailTableIndex) = emailDetail
+                EmailTableIndex += 1
 
-                If folder IsNot Nothing Then
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
-                End If
-            Catch
+                ScheduleRefreshGrid()
+
+            Catch ex As Exception
+                ex = ex
+            Finally
+                SetUiCursor(Cursors.Hand)
             End Try
 
-            ' Ensure there is enough space in the email table when adding a new item
-            If EmailTableIndex > UBound(EmailTable) Then
-                ReDim Preserve EmailTable(EmailTableIndex + EmailTableGrowth)
-            End If
-            EmailTable(EmailTableIndex) = emailDetail
-            EmailTableIndex += 1
+            Try
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+            Catch ex As Exception
 
-            ScheduleRefreshGrid()
+            End Try
 
-        Catch ex As Exception
-
-        Finally
-            SetUiCursor(Cursors.Hand)
-        End Try
+        End SyncLock
 
     End Sub
 
@@ -6039,14 +5900,12 @@ EarlyExit:
     Friend ReadOnly gSuppressEventForEntryIds As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Private _suspensionTimers As New List(Of System.Windows.Threading.DispatcherTimer)
 
-    Private Sub PlaceEntryIdOnShortTermSuspension(ByVal entryId As String)
-
-        Dim shortTermSuspenstionPeriodMilliseconds As Integer = 750
+    Private Sub PlaceEntryIdOnShortTermSuspension(ByVal entryId As String, ByVal shortTermSuspenstionPeriodMilliseconds As Integer)
 
         ' Ensures this runs on the UI thread
 
         If Not Dispatcher.CheckAccess() Then
-            Dispatcher.BeginInvoke(Sub() PlaceEntryIdOnShortTermSuspension(entryId))
+            Dispatcher.BeginInvoke(Sub() PlaceEntryIdOnShortTermSuspension(entryId, shortTermSuspenstionPeriodMilliseconds))
             Return
         End If
 
@@ -6058,8 +5917,11 @@ EarlyExit:
 
         ' setup a timer to remove the entryId from the suppress list after a short delay
         ' Keep a reference to the timer to prevent GC
-        Dim cleanupTimer As New System.Windows.Threading.DispatcherTimer()
-        cleanupTimer.Interval = TimeSpan.FromMilliseconds(shortTermSuspenstionPeriodMilliseconds)
+        Dim cleanupTimer As New DispatcherTimer() With {
+            .IsEnabled = False,
+            .Interval = TimeSpan.FromMilliseconds(shortTermSuspenstionPeriodMilliseconds)
+         }
+
         AddHandler cleanupTimer.Tick, Sub(sender, e)
 
                                           SyncLock gSuppressEventLock
@@ -6078,28 +5940,28 @@ EarlyExit:
 
     End Sub
 
-    Friend Function PreventEventLoopForEntryId(ByVal entryId) As Boolean
+    Friend Function PreventEventLoopForEntryId(ByVal entryId As String) As Boolean
+
+        ' Outlook has a very pesky way of continually firing events for the same change for some time
+        ' this routine helps prevent event loops by suppressing events for a given entryId for a short time period
+        Const shortTermSuspenstionPeriodMilliseconds As Integer = 10000 ' 10 seconds
 
         ' the first time this routine is called for a given entryId it will return False
         ' subsequent calls within a short time frame will return True
 
-        Dim PreventFurtherExecution As Boolean
-
         SyncLock gSuppressEventLock
             If gSuppressEventForEntryIds.Contains(entryId) Then
-                PreventFurtherExecution = True
+                Return True
             Else
-                PlaceEntryIdOnShortTermSuspension(entryId)
-                PreventFurtherExecution = False
+                PlaceEntryIdOnShortTermSuspension(entryId, shortTermSuspenstionPeriodMilliseconds)
+                Return False
             End If
         End SyncLock
-
-        Return PreventFurtherExecution
 
     End Function
 
 #End Region
-    Friend Sub OnEmailChangedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal subject As String, ByVal toAddr As String, ByVal fromAddr As String, ByVal receivedTime As Date, ByVal isUnread As Boolean, ByVal body As String, Optional ByVal attempt As Integer = 0)
+    Friend Sub OnEmailChangedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal subject As String, ByVal toAddr As String, ByVal fromAddr As String, ByVal receivedTime As Date, ByVal isUnread As Boolean, ByVal body As String, Optional ByVal attempt As Integer = 0, Optional ByVal MailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing)
 
         Try
 
@@ -6140,149 +6002,228 @@ EarlyExit:
 
                 End Try
 
-                If Not unchanged Then
-                    ScheduleRefreshGrid()
-                End If
             End If
 
         Finally
             SetUiCursor(Cursors.Hand)
+            If MailItem IsNot Nothing Then
+                Try
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(MailItem)
+                Catch ex As Exception
+                End Try
+            End If
         End Try
 
     End Sub
 
-    Private Class OutlookFolderEventHandler
+    Private Class OutlookEventHandler
         Implements IDisposable
 
-        Private _mainWindow As MainWindow
-        Private _folderIndex As Integer
-        Private _folderPath As String
-        Private _folder As Microsoft.Office.Interop.Outlook.MAPIFolder
-        Private _storeItems As New List(Of Microsoft.Office.Interop.Outlook.Items)
-        Private _storeItemEvents As New List(Of Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
+        Private ReadOnly _mainWindow As MainWindow
+        Private _outlookApp As Microsoft.Office.Interop.Outlook.Application
+        Private _outlookNamespace As Microsoft.Office.Interop.Outlook.NameSpace
+        Private ReadOnly _storeItems As New List(Of Microsoft.Office.Interop.Outlook.Items)
+        Private ReadOnly _storeItemEvents As New List(Of Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
+        Private Shared ReadOnly _storeRegistrationLock As New Object()
+        Private Shared ReadOnly _registeredStoreIds As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+        Private ReadOnly _registeredStoreIdsForHandler As New List(Of String)()
 
-        Public Sub New(ByVal mainWindow As MainWindow, ByVal folderIndex As Integer, ByVal folderPath As String, ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder)
+        Public Sub New(ByVal mainWindow As MainWindow, ByVal outlookNamespace As Microsoft.Office.Interop.Outlook.NameSpace)
 
             Try
                 _mainWindow = mainWindow
-                _folderIndex = folderIndex
-                _folderPath = folderPath
-                _folder = folder
+                _outlookNamespace = outlookNamespace
 
-                ' set up handlers for the inbox and outbox of each store (Mailbox) that MS Outlook is managing
-
-                Dim outlookApp As Microsoft.Office.Interop.Outlook.Application = Nothing
+                _outlookApp = Nothing
                 Try
-                    outlookApp = TryCast(folder.Application, Microsoft.Office.Interop.Outlook.Application)
+                    If _outlookNamespace IsNot Nothing Then
+                        _outlookApp = TryCast(_outlookNamespace.Application, Microsoft.Office.Interop.Outlook.Application)
+                    End If
                 Catch
                 End Try
 
-                If outlookApp Is Nothing Then
+                If _outlookApp Is Nothing Then
                     Try
-                        outlookApp = New Microsoft.Office.Interop.Outlook.Application()
+                        _outlookApp = New Microsoft.Office.Interop.Outlook.Application()
                     Catch
                     End Try
                 End If
 
-                If outlookApp IsNot Nothing Then
-                    Dim outlookNamespace As Microsoft.Office.Interop.Outlook.NameSpace = Nothing
-                    Try
-                        outlookNamespace = outlookApp.GetNamespace("MAPI")
-                    Catch
-                    End Try
+                If _outlookApp IsNot Nothing Then
+                    If _outlookNamespace Is Nothing Then
+                        Try
+                            _outlookNamespace = _outlookApp.GetNamespace("MAPI")
+                        Catch
+                        End Try
+                    End If
 
-                    If outlookNamespace IsNot Nothing Then
-                        For Each store As Microsoft.Office.Interop.Outlook.Store In outlookNamespace.Stores
-                            Try
-                                Dim inbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
-                                Dim outbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
-                                Try
-                                    inbox = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderInbox), Microsoft.Office.Interop.Outlook.Folder)
-                                Catch
-                                End Try
-                                Try
-                                    outbox = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderOutbox), Microsoft.Office.Interop.Outlook.Folder)
-                                Catch
-                                End Try
+                    If _outlookNamespace IsNot Nothing Then
 
-                                If inbox IsNot Nothing Then
-                                    Dim items As Microsoft.Office.Interop.Outlook.Items = inbox.Items
-                                    Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
-                                    If ev IsNot Nothing Then
-                                        AddHandler ev.ItemAdd, AddressOf OnItemAdd
-                                        AddHandler ev.ItemRemove, AddressOf OnItemRemove
-                                        AddHandler ev.ItemChange, AddressOf OnItemChange
-                                        _storeItems.Add(items)
-                                        _storeItemEvents.Add(ev)
-                                    Else
-                                        System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
-                                    End If
-                                End If
+                        AddOutlookHandlers()
 
-                                If outbox IsNot Nothing Then
-                                    Dim items As Microsoft.Office.Interop.Outlook.Items = outbox.Items
-                                    Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
-                                    If ev IsNot Nothing Then
-                                        AddHandler ev.ItemAdd, AddressOf OnItemAdd
-                                        AddHandler ev.ItemRemove, AddressOf OnItemRemove
-                                        AddHandler ev.ItemChange, AddressOf OnItemChange
-                                        _storeItems.Add(items)
-                                        _storeItemEvents.Add(ev)
-                                    Else
-                                        System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
-                                    End If
-                                End If
-
-                            Catch
-                            End Try
-                        Next
                     End If
                 End If
 
             Catch ex As Exception
-
             End Try
+
         End Sub
 
+        Private Sub AddOutlookHandlers()
+
+            ' setup the Outlook handlers on the UI thread so that they don't get garbage collected (and stop working)
+
+            _mainWindow.Dispatcher.Invoke(Sub()
+
+                                              Try
+                                                  If _outlookApp IsNot Nothing AndAlso Not _mainWindow.gOutlookQuitHooked Then
+                                                      Dim quitEvents As Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event = TryCast(_outlookApp, Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event)
+                                                      If quitEvents IsNot Nothing Then
+                                                          AddHandler quitEvents.Quit, AddressOf _mainWindow.OnOutlookQuit
+                                                          _mainWindow.gOutlookQuitHooked = True
+                                                      End If
+                                                  End If
+                                              Catch
+                                              End Try
+
+                                              For Each store As Microsoft.Office.Interop.Outlook.Store In _outlookNamespace.Stores
+                                                  Try
+                                                      Dim storeId As String = ""
+                                                      Try
+                                                          storeId = store.StoreID
+                                                      Catch
+                                                      End Try
+
+                                                      Dim skipStore As Boolean = False
+                                                      If Not String.IsNullOrEmpty(storeId) Then
+                                                          SyncLock _storeRegistrationLock
+                                                              If _registeredStoreIds.Contains(storeId) Then
+                                                                  skipStore = True
+                                                              End If
+                                                          End SyncLock
+                                                      End If
+
+                                                      If skipStore Then Continue For
+
+                                                      Dim inbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
+                                                      Dim outbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
+                                                      Dim attached As Boolean = False
+                                                      Try
+                                                          inbox = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderInbox), Microsoft.Office.Interop.Outlook.Folder)
+                                                      Catch
+                                                      End Try
+                                                      Try
+                                                          outbox = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderOutbox), Microsoft.Office.Interop.Outlook.Folder)
+                                                      Catch
+                                                      End Try
+
+                                                      If inbox IsNot Nothing Then
+                                                          Dim items As Microsoft.Office.Interop.Outlook.Items = inbox.Items
+                                                          Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
+                                                          If ev IsNot Nothing Then
+                                                              AddHandler ev.ItemAdd, AddressOf OnItemAdd
+                                                              AddHandler ev.ItemRemove, AddressOf OnItemRemove
+                                                              AddHandler ev.ItemChange, AddressOf OnItemChange
+                                                              _storeItems.Add(items)
+                                                              _storeItemEvents.Add(ev)
+                                                              attached = True
+                                                          Else
+                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
+                                                          End If
+                                                      End If
+
+                                                      If outbox IsNot Nothing Then
+                                                          Dim items As Microsoft.Office.Interop.Outlook.Items = outbox.Items
+                                                          Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
+                                                          If ev IsNot Nothing Then
+                                                              AddHandler ev.ItemAdd, AddressOf OnItemAdd
+                                                              AddHandler ev.ItemRemove, AddressOf OnItemRemove
+                                                              AddHandler ev.ItemChange, AddressOf OnItemChange
+                                                              _storeItems.Add(items)
+                                                              _storeItemEvents.Add(ev)
+                                                              attached = True
+                                                          Else
+                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
+                                                          End If
+                                                      End If
+
+                                                      If attached AndAlso Not String.IsNullOrEmpty(storeId) Then
+                                                          SyncLock _storeRegistrationLock
+                                                              If Not _registeredStoreIds.Contains(storeId) Then
+                                                                  _registeredStoreIds.Add(storeId)
+                                                              End If
+                                                              _registeredStoreIdsForHandler.Add(storeId)
+                                                          End SyncLock
+                                                      End If
+
+                                                  Catch ex As Exception
+                                                  End Try
+                                              Next
+#If DEBUG Then
+                                              Console.WriteLine("Outlook event handlers attached.")
+#End If
+                                          End Sub)
+
+        End Sub
+
+        Private ReadOnly EnsureUninteruptedProcessingOfOnItemAdd As New Object
         Private Sub OnItemAdd(ByVal Item As Object)
 
-            Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
+            SyncLock EnsureUninteruptedProcessingOfOnItemAdd
 
-            Try
+                Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
 
-                mailItem = TryCast(Item, Microsoft.Office.Interop.Outlook.MailItem)
+                Try
 
-                If mailItem IsNot Nothing Then
+                    mailItem = TryCast(Item, Microsoft.Office.Interop.Outlook.MailItem)
+
+                    If mailItem Is Nothing Then Return
+                    If mailItem.EntryID Is Nothing Then Return
+
                     Dim entryId As String = ""
-                    Try
-                        entryId = mailItem.EntryID
-                    Catch
-                        Return
-                    End Try
 
-                    _mainWindow.TrackListViewEntryId(_folderIndex, entryId)
-                    Dim folderIdx As Integer = _folderIndex
-                    Dim eId As String = entryId
+                    entryId = mailItem.EntryID
+
+                    If _mainWindow.PreventEventLoopForEntryId(entryId) Then
+                        Return
+                    End If
+
+                    Dim folder As Outlook.MAPIFolder = CType(mailItem.Parent, Outlook.MAPIFolder)
+
+                    Dim folderIdx As Integer = 0
+
+                    For Each entry In gFolderTable
+
+                        If String.Equals(entry.FolderPath, folder.FolderPath, StringComparison.OrdinalIgnoreCase) Then
+                            Exit For
+                        End If
+                        folderIdx += 1
+                    Next
+
+                    _mainWindow.TrackListViewEntryId(folderIdx, entryId)
+
                     _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-                                                                      _mainWindow.OnEmailAddedFromEvent(folderIdx, eId)
+                                                                      _mainWindow.OnEmailAddedFromEvent(folderIdx, entryId, mailItem, folder)
                                                                   End Sub))
-                End If
-            Catch ex As Exception
-            Finally
-                If mailItem IsNot Nothing Then
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
-                End If
-            End Try
+
+                Catch ex As Exception
+
+                End Try
+
+            End SyncLock
+
         End Sub
 
         Private Sub OnItemRemove()
 
             Try
+
                 Dim previousMap As Dictionary(Of Integer, HashSet(Of String)) = _mainWindow.GetTrackedEntryIdsSnapshot()
                 If previousMap.Count = 0 Then
                     previousMap = _mainWindow.SnapshotListViewEntryIdsAll()
                     _mainWindow.UpdateTrackedEntryIdsSnapshot(previousMap)
                 End If
+
 
                 _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
                                                                   Dim currentMap As Dictionary(Of Integer, HashSet(Of String)) = _mainWindow.SnapshotOutlookEntryIdsAll()
@@ -6330,13 +6271,9 @@ EarlyExit:
 
                 mailItem = TryCast(Item, Microsoft.Office.Interop.Outlook.MailItem)
                 If mailItem Is Nothing Then Return
+                If mailItem.EntryID Is Nothing Then Return
 
-                Dim entryId As String = ""
-                Try
-                    entryId = mailItem.EntryID
-                Catch
-                    Return
-                End Try
+                Dim entryId As String = mailItem.EntryID
 
                 If _mainWindow.PreventEventLoopForEntryId(entryId) Then Return
 
@@ -6355,23 +6292,64 @@ EarlyExit:
                 Catch
                 End Try
 
-                Dim folderIdx As Integer = _folderIndex
+                Dim folderIdx As Integer = -1
+                Try
+                    Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = TryCast(mailItem.Parent, Microsoft.Office.Interop.Outlook.MAPIFolder)
+                    If folder IsNot Nothing Then
+                        folderIdx = 0
+                        Dim matched As Boolean = False
+                        For Each entry In gFolderTable
+                            If String.Equals(entry.FolderPath, folder.FolderPath, StringComparison.OrdinalIgnoreCase) Then
+                                matched = True
+                                Exit For
+                            End If
+                            folderIdx += 1
+                        Next
+                        If Not matched Then
+                            folderIdx = -1
+                        End If
+                    End If
+                Catch
+                    folderIdx = -1
+                End Try
+
+                If folderIdx < 0 Then Return
+
                 Dim eId As String = entryId
 
                 _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-                                                                  _mainWindow.OnEmailChangedFromEvent(folderIdx, eId, subject, toAddr, fromAddr, receivedTime, isUnread, String.Empty)
+                                                                  _mainWindow.OnEmailChangedFromEvent(folderIdx, eId, subject, toAddr, fromAddr, receivedTime, isUnread, String.Empty, 0, mailItem)
                                                               End Sub))
             Catch ex As Exception
 
             Finally
-                If mailItem IsNot Nothing Then
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
-                End If
+                '    do this in OnEmailChangedFromEvent instead
+                '    If mailItem IsNot Nothing Then
+                '        System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+                '    End If
             End Try
         End Sub
 
         Public Sub Dispose() Implements IDisposable.Dispose
             Try
+
+                If _outlookApp IsNot Nothing Then
+                    Try
+                        _mainWindow.Dispatcher.Invoke(Sub()
+                                                          Try
+                                                              If _mainWindow.gOutlookQuitHooked Then
+                                                                  Dim quitEvents As Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event = TryCast(_outlookApp, Microsoft.Office.Interop.Outlook.ApplicationEvents_11_Event)
+                                                                  If quitEvents IsNot Nothing Then
+                                                                      RemoveHandler quitEvents.Quit, AddressOf _mainWindow.OnOutlookQuit
+                                                                  End If
+                                                                  _mainWindow.gOutlookQuitHooked = False
+                                                              End If
+                                                          Catch
+                                                          End Try
+                                                      End Sub)
+                    Catch
+                    End Try
+                End If
 
                 If _storeItemEvents IsNot Nothing AndAlso _storeItems IsNot Nothing Then
                     For i As Integer = 0 To _storeItemEvents.Count - 1
@@ -6388,14 +6366,30 @@ EarlyExit:
                             System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
                         End If
                     Next
+#If DEBUG Then
+                    Console.WriteLine("Outlook event handlers detached.")
+#End If
+
                 End If
+
+                SyncLock _storeRegistrationLock
+                    For Each storeId In _registeredStoreIdsForHandler
+                        _registeredStoreIds.Remove(storeId)
+                    Next
+                End SyncLock
+                _registeredStoreIdsForHandler.Clear()
 
                 _storeItemEvents.Clear()
                 _storeItems.Clear()
 
-                If _folder IsNot Nothing Then
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(_folder)
-                    _folder = Nothing
+                If _outlookNamespace IsNot Nothing Then
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(_outlookNamespace)
+                    _outlookNamespace = Nothing
+                End If
+
+                If _outlookApp IsNot Nothing Then
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(_outlookApp)
+                    _outlookApp = Nothing
                 End If
 
             Catch ex As Exception
@@ -6440,7 +6434,7 @@ Public Class EMailTableSorter
         Descending = 2
     End Enum
 
-    Private ObjectCompare As Comparer 'CaseInsensitiveComparer
+    Private ReadOnly ObjectCompare As Comparer 'CaseInsensitiveComparer
 
     Private PrimaryColumnToSort As Integer
     Private PrimaryOrderOfSort As SortOrder
@@ -6631,7 +6625,7 @@ Public Class FinalRecommendationTableSorter
         Descending = 2
     End Enum
 
-    Private ObjectCompare As Comparer 'CaseInsensitiveComparer
+    Private ReadOnly ObjectCompare As Comparer 'CaseInsensitiveComparer
 
     Private _PrimaryColumnToSort As String
     Private _SortOrder As MySortOrder

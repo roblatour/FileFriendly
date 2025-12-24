@@ -82,8 +82,6 @@
     Friend PAFWSaysMWLeftShouldBe As Double
 
     Friend gDeletedFolderIndex As Integer = -1
-    Friend gSentFolderIndex As Integer = -1
-    Friend gInboxFolderIndex As Integer = -1
 
     Friend gContextFile1 As String = ""
     Friend gContextFile2 As String = ""
