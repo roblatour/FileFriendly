@@ -1904,7 +1904,14 @@ CleanExit:
 
                 If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
                     Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
-                    ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                    Try
+                        ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                    Finally
+                        If folder IsNot Nothing Then
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                            folder = Nothing
+                        End If
+                    End Try
                 End If
 
             End If
@@ -1936,7 +1943,9 @@ CleanExit:
         lEMailTableSorter = Nothing
 
         '***************************************************************************
-        'Step 3 add trailers only when needed
+        'Step 3: trailer flags are used to identify email chains, they denote where
+        '        an email's subject matches the subject of the next email; 
+        '        add these trailers where needed
         '***************************************************************************
 
         Dim addTrailerFlag As Boolean
@@ -1981,10 +1990,7 @@ CleanExit:
 
                 If EmailTable(x).sTrailer.Length = 0 Then
 
-                    ' Optional: previous attachment fallback logic if you still want it
-                    ' (requires resolving the MailItem again or caching attachment info)
-                    ' Otherwise, you can just use the Chr(255) marker:
-                    EmailTable(x).sTrailer = Chr(255)
+                      EmailTable(x).sTrailer = Chr(255)
 
                 Else
 
@@ -5529,7 +5535,7 @@ EarlyExit:
         For Each queuedEvent In pending
             Select Case queuedEvent.EventType
                 Case QueuedEmailEventType.Added
-                    OnEmailAddedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, mailItem, folder)
+                    OnEmailAddedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, queuedEvent.Subject, queuedEvent.ToAddr, queuedEvent.FromAddr, queuedEvent.ReceivedTime, queuedEvent.IsUnread, queuedEvent.Body)
                 Case QueuedEmailEventType.Removed
                     OnEmailRemovedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId)
                 Case QueuedEmailEventType.Changed
@@ -5541,7 +5547,7 @@ EarlyExit:
 
     Private EnsureUninteruptedProcessingOfOnEmailAddedFromEvent As New Object
 
-    Friend Sub OnEmailAddedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal mailItem As Microsoft.Office.Interop.Outlook.MailItem, ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder)
+    Friend Sub OnEmailAddedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal subject As String, ByVal toAddr As String, ByVal fromAddr As String, ByVal receivedTime As Date, ByVal isUnread As Boolean, ByVal body As String)
 
         SyncLock EnsureUninteruptedProcessingOfOnEmailAddedFromEvent
 
@@ -5551,7 +5557,7 @@ EarlyExit:
 
                 SetUiCursor(Cursors.Wait)
 
-                If QueueEmailEvent(QueuedEmailEventType.Added, folderIndex, entryId,,,,,,,, mailItem, folder) Then Return
+                If QueueEmailEvent(QueuedEmailEventType.Added, folderIndex, entryId, subject, toAddr, fromAddr, receivedTime, isUnread, body) Then Return
 
                 Dim emailDetail = New StructureOfEmailDetails() With {
                     .sOriginalFolderReferenceNumber = CShort(folderIndex),
@@ -5562,48 +5568,15 @@ EarlyExit:
 
                     Dim folderInfo As FolderInfo = gFolderTable(folderIndex)
 
-                    If mailItem IsNot Nothing Then
-
-                        With emailDetail
-
-                            .sSubject = CleanUpSubjectLine(If(mailItem.Subject, String.Empty))
-                            .sTo = If(mailItem.To, String.Empty)
-
-                            Dim friendlyFrom As String = ""
-                            Try
-                                If mailItem.Sender IsNot Nothing Then
-                                    If String.Equals(mailItem.SenderEmailType, "SMTP", StringComparison.OrdinalIgnoreCase) Then
-                                        friendlyFrom = mailItem.SenderEmailAddress
-                                    Else
-                                        Dim exUser As Microsoft.Office.Interop.Outlook.ExchangeUser =
-                                            TryCast(mailItem.Sender.GetExchangeUser(), Microsoft.Office.Interop.Outlook.ExchangeUser)
-                                        If exUser IsNot Nothing AndAlso Not String.IsNullOrEmpty(exUser.PrimarySmtpAddress) Then
-                                            friendlyFrom = exUser.PrimarySmtpAddress
-                                        Else
-                                            friendlyFrom = mailItem.SenderEmailAddress
-                                        End If
-                                    End If
-                                Else
-                                    friendlyFrom = mailItem.SenderEmailAddress
-                                End If
-                            Catch
-                                friendlyFrom = mailItem.SenderEmailAddress
-                            End Try
-
-                            .sFrom = If(friendlyFrom, String.Empty)
-                            .sDateAndTime = mailItem.ReceivedTime
-                            .sUnRead = If(mailItem.UnRead, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
-                            .sMailBoxName = GetMailboxNameFromFolderPath(folderInfo.FolderPath, folderInfo.StoreID)
-                            .sBody = If(mailItem.Body, String.Empty)
-
-                        End With
-
-                        System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
-                    End If
-
-                    If folder IsNot Nothing Then
-                        System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
-                    End If
+                    With emailDetail
+                        .sSubject = subject
+                        .sTo = toAddr
+                        .sFrom = fromAddr
+                        .sDateAndTime = receivedTime
+                        .sUnRead = If(isUnread, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
+                        .sMailBoxName = GetMailboxNameFromFolderPath(folderInfo.FolderPath, folderInfo.StoreID)
+                        .sBody = body
+                    End With
 
                 Catch ex As Exception
                     ex = ex
@@ -5622,12 +5595,6 @@ EarlyExit:
                 ex = ex
             Finally
                 SetUiCursor(Cursors.Hand)
-            End Try
-
-            Try
-                System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
-            Catch ex As Exception
-
             End Try
 
         End SyncLock
@@ -5885,7 +5852,10 @@ EarlyExit:
                                                           End SyncLock
                                                       End If
 
-                                                      If skipStore Then Continue For
+                                                      If skipStore Then
+                                                          System.Runtime.InteropServices.Marshal.ReleaseComObject(store)
+                                                          Continue For
+                                                      End If
 
                                                       Dim inbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
                                                       Dim outbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
@@ -5899,35 +5869,42 @@ EarlyExit:
                                                       Catch
                                                       End Try
 
-                                                      If inbox IsNot Nothing Then
-                                                          Dim items As Microsoft.Office.Interop.Outlook.Items = inbox.Items
-                                                          Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
-                                                          If ev IsNot Nothing Then
-                                                              AddHandler ev.ItemAdd, AddressOf OnItemAdd
-                                                              AddHandler ev.ItemRemove, AddressOf OnItemRemove
-                                                              AddHandler ev.ItemChange, AddressOf OnItemChange
-                                                              _storeItems.Add(items)
-                                                              _storeItemEvents.Add(ev)
-                                                              attached = True
-                                                          Else
-                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
+                                                      Try
+                                                          If inbox IsNot Nothing Then
+                                                              Dim items As Microsoft.Office.Interop.Outlook.Items = inbox.Items
+                                                              Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
+                                                              If ev IsNot Nothing Then
+                                                                  AddHandler ev.ItemAdd, AddressOf OnItemAdd
+                                                                  AddHandler ev.ItemRemove, AddressOf OnItemRemove
+                                                                  AddHandler ev.ItemChange, AddressOf OnItemChange
+                                                                  _storeItems.Add(items)
+                                                                  _storeItemEvents.Add(ev)
+                                                                  attached = True
+                                                              Else
+                                                                  System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
+                                                              End If
                                                           End If
-                                                      End If
+                                                      Finally
+                                                          If inbox IsNot Nothing Then
+                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(inbox)
+                                                              inbox = Nothing
+                                                          End If
+                                                      End Try
 
-                                                      If outbox IsNot Nothing Then
-                                                          Dim items As Microsoft.Office.Interop.Outlook.Items = outbox.Items
-                                                          Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
-                                                          If ev IsNot Nothing Then
-                                                              AddHandler ev.ItemAdd, AddressOf OnItemAdd
-                                                              AddHandler ev.ItemRemove, AddressOf OnItemRemove
-                                                              AddHandler ev.ItemChange, AddressOf OnItemChange
-                                                              _storeItems.Add(items)
-                                                              _storeItemEvents.Add(ev)
-                                                              attached = True
-                                                          Else
-                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
+                                                      Try
+                                                          If outbox IsNot Nothing Then
+                                                              Dim items As Microsoft.Office.Interop.Outlook.Items = outbox.Items
+                                                              Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
+                                                              If ev IsNot Nothing Then
+                                                                  System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
+                                                              End If
                                                           End If
-                                                      End If
+                                                      Finally
+                                                          If outbox IsNot Nothing Then
+                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(outbox)
+                                                              outbox = Nothing
+                                                          End If
+                                                      End Try
 
                                                       If attached AndAlso Not String.IsNullOrEmpty(storeId) Then
                                                           SyncLock _storeRegistrationLock
@@ -5939,6 +5916,11 @@ EarlyExit:
                                                       End If
 
                                                   Catch ex As Exception
+                                                  Finally
+                                                      Try
+                                                          System.Runtime.InteropServices.Marshal.ReleaseComObject(store)
+                                                      Catch
+                                                      End Try
                                                   End Try
                                               Next
 #If DEBUG Then
@@ -5954,6 +5936,7 @@ EarlyExit:
             SyncLock EnsureUninteruptedProcessingOfOnItemAdd
 
                 Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
+                Dim folder As Outlook.MAPIFolder = Nothing
 
                 Try
 
@@ -5964,29 +5947,106 @@ EarlyExit:
 
                     Dim entryId As String = ""
 
-                    entryId = mailItem.EntryID
+                    Try
+                        entryId = mailItem.EntryID
+                    Catch
+                        Return
+                    End Try
 
                     If _mainWindow.BlockDuplicateEventProcessing("Add", entryId) Then
                         Return
                     End If
 
-                    Dim folder As Outlook.MAPIFolder = CType(mailItem.Parent, Outlook.MAPIFolder)
+                    Dim folderIdx As Integer = -1
+                    Dim subject As String = ""
+                    Dim toAddr As String = ""
+                    Dim fromAddr As String = ""
+                    Dim receivedTime As Date = Nothing
+                    Dim isUnread As Boolean = False
+                    Dim body As String = ""
 
-                    Dim folderIdx As Integer = 0
+                    Try
+                        folder = CType(mailItem.Parent, Outlook.MAPIFolder)
 
-                    For Each entry In gFolderTable
+                        folderIdx = 0
+                        For Each entry In gFolderTable
+                            If String.Equals(entry.FolderPath, folder.FolderPath, StringComparison.OrdinalIgnoreCase) Then
+                                Exit For
+                            End If
+                            folderIdx += 1
+                        Next
 
-                        If String.Equals(entry.FolderPath, folder.FolderPath, StringComparison.OrdinalIgnoreCase) Then
-                            Exit For
+                        If folderIdx >= gFolderTable.Length Then
+                            folderIdx = -1
                         End If
-                        folderIdx += 1
-                    Next
+                    Catch
+                        folderIdx = -1
+                    End Try
+
+                    Try
+                        subject = _mainWindow.CleanUpSubjectLine(If(mailItem.Subject, String.Empty))
+                        toAddr = If(mailItem.To, String.Empty)
+                        receivedTime = mailItem.ReceivedTime
+                        isUnread = mailItem.UnRead
+                        body = If(mailItem.Body, String.Empty)
+
+                        Dim friendlyFrom As String = ""
+                        Try
+                            If mailItem.Sender IsNot Nothing Then
+                                If String.Equals(mailItem.SenderEmailType, "SMTP", StringComparison.OrdinalIgnoreCase) Then
+                                    friendlyFrom = mailItem.SenderEmailAddress
+                                Else
+                                    Dim exUser As Microsoft.Office.Interop.Outlook.ExchangeUser =
+                                        TryCast(mailItem.Sender.GetExchangeUser(), Microsoft.Office.Interop.Outlook.ExchangeUser)
+                                    If exUser IsNot Nothing AndAlso Not String.IsNullOrEmpty(exUser.PrimarySmtpAddress) Then
+                                        friendlyFrom = exUser.PrimarySmtpAddress
+                                    Else
+                                        friendlyFrom = mailItem.SenderEmailAddress
+                                    End If
+                                End If
+                            Else
+                                friendlyFrom = mailItem.SenderEmailAddress
+                            End If
+                        Catch
+                            friendlyFrom = mailItem.SenderEmailAddress
+                        End Try
+
+                        fromAddr = If(friendlyFrom, String.Empty)
+                    Catch
+                    End Try
+
+                    If folder IsNot Nothing Then
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                        folder = Nothing
+                    End If
+
+                    If mailItem IsNot Nothing Then
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+                        mailItem = Nothing
+                    End If
+
+                    If folderIdx < 0 Then Return
 
                     _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-                                                                      _mainWindow.OnEmailAddedFromEvent(folderIdx, entryId, mailItem, folder)
+                                                                      _mainWindow.OnEmailAddedFromEvent(folderIdx, entryId, subject, toAddr, fromAddr, receivedTime, isUnread, body)
                                                                   End Sub))
 
                 Catch ex As Exception
+
+                Finally
+                    Try
+                        If folder IsNot Nothing Then
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                        End If
+                    Catch
+                    End Try
+
+                    Try
+                        If mailItem IsNot Nothing Then
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+                        End If
+                    Catch
+                    End Try
 
                 End Try
 
