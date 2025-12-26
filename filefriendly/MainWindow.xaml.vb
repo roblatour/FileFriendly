@@ -3,10 +3,11 @@ Imports System.Linq
 Imports System.Management
 Imports System.Net
 Imports System.Security.Policy
+Imports System.Text.RegularExpressions
 Imports System.Threading
 Imports System.Windows
-Imports Microsoft.Office.Interop
 Imports System.Windows.Threading
+Imports Microsoft.Office.Interop
 
 Class MainWindow
     Inherits Window
@@ -144,7 +145,6 @@ Class MainWindow
     Private md5Obj As New System.Security.Cryptography.MD5CryptoServiceProvider
 
     Private gCurrentlySelectedListViewItemIndex As Integer = 0
-
     Private Enum SelectionRestoreReason
         Refresh = 0
         Sort = 1
@@ -167,6 +167,15 @@ Class MainWindow
     Private gPendingSelectionSnapshot As SelectionSnapshot
     Private gPendingSelectionReason As SelectionRestoreReason = SelectionRestoreReason.Refresh
     Private gPendingSelectionFallbackToFirst As Boolean = True
+
+    Private lProgressBareRefreshingThresholdCounter As Double = 0
+
+    ' the following weightings are used to level out progress bar increments during a refresh
+    ' the current values were determined by measuring actual refreshes of a relatively large set of folders/emails
+    ' processing one email takes much longer in the Email Review stage than in the Final stage
+    ' the ratio is approximately 30:1
+    Private Const lProgressBarWeightingForEmailReviews As Double = 30
+    Private Const lProgressBarWeightingForFinalSteps As Double = 1
 
     Public Sub New()
 
@@ -806,8 +815,6 @@ Class MainWindow
 
     End Sub
 
-    Private lProgressBareRefreshingThresholdCounter As Integer = 0
-
     Delegate Sub SetFolderNameTextCallback(ByVal [text] As String)
     Private Sub SetFoldersNameText(ByVal [text] As String)
         Me.lblMainMessageLine.Content = [text]
@@ -1043,7 +1050,6 @@ Class MainWindow
         Try
 
             If FinalRecommendationTable.Length = 0 Then
-                UpdateTrackedListViewEntries(FinalRecommendationTable)
                 Return
             End If
 
@@ -1100,8 +1106,6 @@ Class MainWindow
             Catch ex As Exception
             End Try
 
-            UpdateTrackedListViewEntries(FinalRecommendationTable)
-
             RecalculateListViewColumnWidths()
 
         Catch ex As Exception
@@ -1109,220 +1113,6 @@ Class MainWindow
             MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
 
         End Try
-
-    End Sub
-
-    Private Sub UpdateTrackedListViewEntries(ByVal FinalRecommendationTable As ListViewRowClass())
-
-        Dim snapshot As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-
-        Me.Dispatcher.Invoke(Sub()
-                                 For Each obj As Object In ListView1.Items
-                                     Dim row As ListViewRowClass = TryCast(obj, ListViewRowClass)
-                                     If row Is Nothing Then Continue For
-
-                                     Dim folderIdx As Integer = row.OriginalFolder
-                                     Dim entryId As String = row.OutlookEntryID
-                                     If folderIdx < 0 OrElse String.IsNullOrEmpty(entryId) Then Continue For
-
-                                     Dim setForFolder As HashSet(Of String) = Nothing
-                                     If Not snapshot.TryGetValue(folderIdx, setForFolder) Then
-                                         setForFolder = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                                         snapshot(folderIdx) = setForFolder
-                                     End If
-
-                                     setForFolder.Add(entryId)
-                                 Next
-                             End Sub)
-
-        SyncLock gListViewEntryIdsLock
-            gListViewEntryIdsByFolder = snapshot
-        End SyncLock
-
-    End Sub
-
-    Friend Sub TrackListViewEntryId(ByVal folderIndex As Integer, ByVal entryId As String)
-
-        If folderIndex < 0 OrElse String.IsNullOrEmpty(entryId) Then Return
-
-        SyncLock gListViewEntryIdsLock
-            Dim setForFolder As HashSet(Of String) = Nothing
-            If Not gListViewEntryIdsByFolder.TryGetValue(folderIndex, setForFolder) Then
-                setForFolder = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                gListViewEntryIdsByFolder(folderIndex) = setForFolder
-            End If
-
-            setForFolder.Add(entryId)
-        End SyncLock
-
-    End Sub
-
-    Friend Function GetTrackedEntryIdsSnapshot() As Dictionary(Of Integer, HashSet(Of String))
-
-        Dim copy As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-
-        SyncLock gListViewEntryIdsLock
-            For Each kvp In gListViewEntryIdsByFolder
-                copy(kvp.Key) = New HashSet(Of String)(kvp.Value, StringComparer.OrdinalIgnoreCase)
-            Next
-        End SyncLock
-
-        Return copy
-
-    End Function
-
-    Friend Sub UpdateTrackedEntryIdsSnapshot(ByVal snapshot As Dictionary(Of Integer, HashSet(Of String)))
-
-        Dim safeSnapshot As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-        If snapshot IsNot Nothing Then
-            For Each kvp In snapshot
-                safeSnapshot(kvp.Key) = New HashSet(Of String)(kvp.Value, StringComparer.OrdinalIgnoreCase)
-            Next
-        End If
-
-        SyncLock gListViewEntryIdsLock
-            gListViewEntryIdsByFolder = safeSnapshot
-        End SyncLock
-
-    End Sub
-
-    Friend Function SnapshotListViewEntryIdsAll() As Dictionary(Of Integer, HashSet(Of String))
-
-        Dim snapshot As Dictionary(Of Integer, HashSet(Of String)) = Nothing
-
-        Me.Dispatcher.Invoke(Sub()
-                                 Dim map As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-
-                                 For Each obj As Object In ListView1.Items
-                                     Dim row As ListViewRowClass = TryCast(obj, ListViewRowClass)
-                                     If row Is Nothing Then Continue For
-
-                                     Dim folderIdx As Integer = row.OriginalFolder
-                                     Dim entryId As String = row.OutlookEntryID
-                                     If folderIdx < 0 OrElse String.IsNullOrEmpty(entryId) Then Continue For
-
-                                     Dim setForFolder As HashSet(Of String) = Nothing
-                                     If Not map.TryGetValue(folderIdx, setForFolder) Then
-                                         setForFolder = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                                         map(folderIdx) = setForFolder
-                                     End If
-
-                                     setForFolder.Add(entryId)
-                                 Next
-
-                                 snapshot = map
-                             End Sub)
-
-        If snapshot Is Nothing Then
-            Return New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-        End If
-
-        Return snapshot
-
-    End Function
-
-    Friend Function SnapshotOutlookEntryIdsAll() As Dictionary(Of Integer, HashSet(Of String))
-
-        Dim result As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-
-        Dim ns As Microsoft.Office.Interop.Outlook.NameSpace = oNS
-        If ns Is Nothing Then Return result
-
-        Dim foldersToScan As New HashSet(Of Integer)(IntegerComparer.Instance)
-        For Each idx In gInboxFolderIndices
-            foldersToScan.Add(idx)
-        Next
-        For Each idx In gSentFolderIndices
-            foldersToScan.Add(idx)
-        Next
-
-        For Each folderIdx In foldersToScan
-            Try
-                If folderIdx < 0 OrElse folderIdx >= gFolderTable.Length Then Continue For
-
-                Dim folderInfo As FolderInfo = gFolderTable(folderIdx)
-                Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing
-                Dim items As Microsoft.Office.Interop.Outlook.Items = Nothing
-                Try
-                    folder = ns.GetFolderFromID(folderInfo.EntryID, folderInfo.StoreID)
-                    If folder Is Nothing Then Continue For
-
-                    items = folder.Items
-                    Dim setForFolder As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-
-                    If items IsNot Nothing Then
-                        Dim count As Integer = items.Count
-                        For i As Integer = 1 To count
-                            Dim obj As Object = Nothing
-                            Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
-                            Try
-                                obj = items(i)
-                                mailItem = TryCast(obj, Microsoft.Office.Interop.Outlook.MailItem)
-                                Dim entryId As String = String.Empty
-                                If mailItem IsNot Nothing Then
-                                    entryId = mailItem.EntryID
-                                Else
-                                    Try
-                                        entryId = CStr(CallByName(obj, "EntryID", CallType.Get))
-                                    Catch
-                                    End Try
-                                End If
-                                If Not String.IsNullOrEmpty(entryId) Then
-                                    setForFolder.Add(entryId)
-                                End If
-                            Catch
-                            Finally
-                                If mailItem IsNot Nothing Then
-                                    System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
-                                ElseIf obj IsNot Nothing AndAlso System.Runtime.InteropServices.Marshal.IsComObject(obj) Then
-                                    System.Runtime.InteropServices.Marshal.ReleaseComObject(obj)
-                                End If
-                            End Try
-                        Next
-                    End If
-
-                    result(folderIdx) = setForFolder
-                Catch
-                Finally
-                    If items IsNot Nothing Then
-                        System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
-                    End If
-                    If folder IsNot Nothing Then
-                        System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
-                    End If
-                End Try
-
-            Catch
-            End Try
-        Next
-
-        Return result
-
-    End Function
-
-    Private Sub UpdateTrackedEntriesFromArray(ByVal rows As ListViewRowClass())
-
-        Dim snapshot As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
-
-        If rows IsNot Nothing Then
-            For Each row In rows
-                If row Is Nothing Then Continue For
-
-                Dim folderIdx As Integer = row.OriginalFolder
-                Dim entryId As String = row.OutlookEntryID
-                If folderIdx < 0 OrElse String.IsNullOrEmpty(entryId) Then Continue For
-
-                Dim setForFolder As HashSet(Of String) = Nothing
-                If Not snapshot.TryGetValue(folderIdx, setForFolder) Then
-                    setForFolder = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                    snapshot(folderIdx) = setForFolder
-                End If
-
-                setForFolder.Add(entryId)
-            Next
-        End If
-
-        UpdateTrackedEntryIdsSnapshot(snapshot)
 
     End Sub
 
@@ -1831,11 +1621,11 @@ CleanExit:
                     ToolTipMessage = "E-mails from all included folders are being reviewed"
 
                     'ProcessBarMaxValue = 
-                    ' 1 times the TotalEMails To Be Reviewed for processing all info but the trailer +
-                    ' 2 times the TotalEMails To Be Reviewed for processing the trailer +
+                    ' 10 times the TotalEMails To Be Reviewed for processing all info but the trailer +
+                    ' 1 times the TotalEMails To Be Reviewed for processing the trailer + 
                     ' a time factor doing the recommendations
                     'ProgressBarMaxValue = (3 * lTotalEMailsToBeReviewed) + Int(lTotalEMailsToBeReviewed * (1 + My.Settings.RatioOfRecommendationToProcessingTime + 0.01))
-                    ProgressBarMaxValue = lTotalEMailsToBeReviewed * 3
+                    ProgressBarMaxValue = lTotalEMailsToBeReviewed * (lProgressBarWeightingForEmailReviews + lProgressBarWeightingForFinalSteps)
                     ProgressBarMaxValue *= (1 + My.Settings.RatioOfRecommendationToProcessingTime + 0.01)
 
                 Else
@@ -1865,7 +1655,7 @@ CleanExit:
 
             End If
 
-            gThresholdForReportingProgressOnTheProgressBar = Math.Max(50, lTotalEMailsToBeReviewed / 200) ' every 1/2 percent
+            gThresholdForReportingProgressOnTheProgressBar = lTotalEMailsToBeReviewed / 100 ' Math.Max(50, lTotalEMailsToBeReviewed / 100) ' every 1 percent
 
             Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {ToolTipMessage})
             Me.Dispatcher.BeginInvoke(New SetProgressBarMaxValueCallback(AddressOf SetProgressBarMaxValue), New Object() {ProgressBarMaxValue})
@@ -2095,17 +1885,18 @@ CleanExit:
 
             ScanThisFolder = False
 
-            If gRefreshAll Then
 
-                ScanThisFolder = Collection_of_folders_to_exclude_is_empty OrElse (strCollection.IndexOf(gFolderNamesTable(x)) = -1)
+            If gRefreshInbox AndAlso gInboxFolderIndices.Contains(x) AndAlso (gInboxFolderIndices.Count > 0) Then
 
-            ElseIf gInboxFolderIndices.Contains(x) Then
+                ScanThisFolder = True
 
-                ScanThisFolder = gRefreshInbox AndAlso (gInboxFolderIndices.Count > 0)
+            ElseIf gRefreshSent AndAlso gSentFolderIndices.Contains(x) AndAlso (gSentFolderIndices.Count > 0) Then
 
-            ElseIf gSentFolderIndices.Contains(x) Then
+                ScanThisFolder = True
 
-                ScanThisFolder = gRefreshSent AndAlso (gSentFolderIndices.Count > 0)
+            ElseIf gRefreshAll Then
+
+                ScanThisFolder = (strCollection.IndexOf(gFolderNamesTable(x)) = -1) OrElse Collection_of_folders_to_exclude_is_empty
 
             End If
 
@@ -2240,7 +2031,7 @@ CleanExit:
 
             End If
 
-            lProgressBareRefreshingThresholdCounter += 2
+            lProgressBareRefreshingThresholdCounter += lProgressBarWeightingForFinalSteps
             If lProgressBareRefreshingThresholdCounter > gThresholdForReportingProgressOnTheProgressBar Then
                 iProgressBarValue += lProgressBareRefreshingThresholdCounter
                 lProgressBareRefreshingThresholdCounter = 0
@@ -2319,7 +2110,6 @@ EarlyExit:
                 Dim mail As Microsoft.Office.Interop.Outlook.MailItem =
                 TryCast(obj, Microsoft.Office.Interop.Outlook.MailItem)
                 If mail Is Nothing Then
-                    ' System.Runtime.InteropServices.Marshal.ReleaseComObject(obj)
                     Continue For
                 End If
 
@@ -2367,7 +2157,7 @@ EarlyExit:
                 EmailTable(EmailTableIndex) = emailDetail
                 EmailTableIndex += 1
 
-                lProgressBareRefreshingThresholdCounter += 1
+                lProgressBareRefreshingThresholdCounter += lProgressBarWeightingForEmailReviews
                 If lProgressBareRefreshingThresholdCounter > gThresholdForReportingProgressOnTheProgressBar Then
                     iProgressBarValue += lProgressBareRefreshingThresholdCounter
                     lProgressBareRefreshingThresholdCounter = 0
@@ -2645,7 +2435,6 @@ EarlyExit:
                 If line = 0 Then
                     ' nothing to show
                     ReDim gFinalRecommendationTable(0)
-                    UpdateTrackedEntriesFromArray(gFinalRecommendationTable)
                     Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem),
                                      New Object() {gFinalRecommendationTable})
                     lTotalRecommendations = 0
@@ -2656,7 +2445,6 @@ EarlyExit:
 
                 ApplyCurrentSortOrderToFinalTable()
 
-                UpdateTrackedEntriesFromArray(gFinalRecommendationTable)
                 Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
 
                 lTotalRecommendations = line
@@ -2666,7 +2454,6 @@ EarlyExit:
             End If
 
             If EmailTableIndex = 0 Then
-                UpdateTrackedEntriesFromArray(Nothing)
                 Exit Try
             End If
 
@@ -2826,7 +2613,6 @@ EarlyExit:
 
             ApplyCurrentSortOrderToFinalTable()
 
-            UpdateTrackedEntriesFromArray(gFinalRecommendationTable)
             Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
 
             lTotalRecommendations = lLineNumber
@@ -4347,6 +4133,11 @@ EarlyExit:
                 Return ""
             End If
 
+            ' the move being done below will itself raise a 'Remove' event that we need to ignore
+            If Action <> "File" Then
+                _MainWindow.BlockDuplicateEventProcessing("Remove", "unknown")
+            End If
+
             'Do the move
             Dim oMovedEmail As Microsoft.Office.Interop.Outlook.MailItem = mail.Move(targetFolder)
 
@@ -5742,12 +5533,11 @@ EarlyExit:
                 Case QueuedEmailEventType.Removed
                     OnEmailRemovedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId)
                 Case QueuedEmailEventType.Changed
-                    OnEmailChangedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, queuedEvent.Subject, queuedEvent.ToAddr, queuedEvent.FromAddr, queuedEvent.ReceivedTime, queuedEvent.IsUnread, queuedEvent.Body, queuedEvent.Attempt)
+                    OnEmailChangedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, queuedEvent.IsUnread, queuedEvent.Attempt)
             End Select
         Next
 
     End Sub
-
 
     Private EnsureUninteruptedProcessingOfOnEmailAddedFromEvent As New Object
 
@@ -5898,74 +5688,66 @@ EarlyExit:
 
     Friend ReadOnly gSuppressEventLock As New Object()
     Friend ReadOnly gSuppressEventForEntryIds As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-    Private _suspensionTimers As New List(Of System.Windows.Threading.DispatcherTimer)
+    Private _suspensionTimers As New Dictionary(Of String, System.Windows.Threading.DispatcherTimer)(StringComparer.OrdinalIgnoreCase)
 
-    Private Sub PlaceEntryIdOnShortTermSuspension(ByVal entryId As String, ByVal shortTermSuspenstionPeriodMilliseconds As Integer)
+    Friend Function BlockDuplicateEventProcessing(ByVal action As String, ByVal entryId As String) As Boolean
 
-        ' Ensures this runs on the UI thread
+        ' The first time the routine is called for a given action + entryId it will return False
+        ' Subsequent calls for the same action + entryID will return True (thus allowing the caller to suspend processing for that combination of action + entryID) 
+        ' However, 1 second after having received no further calls for that action + entryID the routine will reset itself and 
+        ' no longer prevent that action entryId (thus allowing processing to continue for that action + entryID based on a separate event)
+
+        Const shortTermSuspenstionPeriodMilliseconds As Integer = 1000
 
         If Not Dispatcher.CheckAccess() Then
-            Dispatcher.BeginInvoke(Sub() PlaceEntryIdOnShortTermSuspension(entryId, shortTermSuspenstionPeriodMilliseconds))
-            Return
+            Return Dispatcher.Invoke(Function() BlockDuplicateEventProcessing(action, entryId))
         End If
 
-        ' Add to suppress list to prevent event loop
-
         SyncLock gSuppressEventLock
-            gSuppressEventForEntryIds.Add(entryId)
-        End SyncLock
 
-        ' setup a timer to remove the entryId from the suppress list after a short delay
-        ' Keep a reference to the timer to prevent GC
-        Dim cleanupTimer As New DispatcherTimer() With {
-            .IsEnabled = False,
-            .Interval = TimeSpan.FromMilliseconds(shortTermSuspenstionPeriodMilliseconds)
-         }
+            Dim timer As System.Windows.Threading.DispatcherTimer = Nothing
+            Dim alreadySuppressed As Boolean = _suspensionTimers.TryGetValue(entryId, timer)
 
-        AddHandler cleanupTimer.Tick, Sub(sender, e)
+            If alreadySuppressed Then
 
-                                          SyncLock gSuppressEventLock
-                                              gSuppressEventForEntryIds.Remove(entryId)
-                                          End SyncLock
+                timer.Stop()
+                timer.Interval = TimeSpan.FromMilliseconds(shortTermSuspenstionPeriodMilliseconds)
 
-                                          cleanupTimer.Stop()
-                                          ' Remove the timer from the list to allow GC
-                                          _suspensionTimers.Remove(cleanupTimer)
-
-                                      End Sub
-
-        _suspensionTimers.Add(cleanupTimer)
-
-        cleanupTimer.Start()
-
-    End Sub
-
-    Friend Function PreventEventLoopForEntryId(ByVal entryId As String) As Boolean
-
-        ' Outlook has a very pesky way of continually firing events for the same change for some time
-        ' this routine helps prevent event loops by suppressing events for a given entryId for a short time period
-        Const shortTermSuspenstionPeriodMilliseconds As Integer = 10000 ' 10 seconds
-
-        ' the first time this routine is called for a given entryId it will return False
-        ' subsequent calls within a short time frame will return True
-
-        SyncLock gSuppressEventLock
-            If gSuppressEventForEntryIds.Contains(entryId) Then
-                Return True
             Else
-                PlaceEntryIdOnShortTermSuspension(entryId, shortTermSuspenstionPeriodMilliseconds)
-                Return False
+
+                gSuppressEventForEntryIds.Add(entryId)
+
+                timer = New DispatcherTimer() With {
+                    .IsEnabled = False,
+                    .Interval = TimeSpan.FromMilliseconds(shortTermSuspenstionPeriodMilliseconds)
+                 }
+
+                AddHandler timer.Tick, Sub(sender, e)
+                                           timer.Stop()
+                                           SyncLock gSuppressEventLock
+                                               gSuppressEventForEntryIds.Remove(entryId)
+                                               _suspensionTimers.Remove(entryId)
+                                               ' Beep() ' for debugging an optional beep can be placed here to give an indication of when the suppression period ends
+                                           End SyncLock
+                                       End Sub
+
+                _suspensionTimers(entryId) = timer
+
             End If
+
+            timer.Start()
+
+            Return alreadySuppressed
         End SyncLock
 
     End Function
 
 #End Region
-    Friend Sub OnEmailChangedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal subject As String, ByVal toAddr As String, ByVal fromAddr As String, ByVal receivedTime As Date, ByVal isUnread As Boolean, ByVal body As String, Optional ByVal attempt As Integer = 0, Optional ByVal MailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing)
+    Friend Sub OnEmailChangedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal isUnread As Boolean, Optional ByVal attempt As Integer = 0, Optional ByVal MailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing)
 
         Try
 
-            If QueueEmailEvent(QueuedEmailEventType.Changed, folderIndex, entryId, subject, toAddr, fromAddr, receivedTime, isUnread, body, attempt) Then Return
+            If QueueEmailEvent(QueuedEmailEventType.Changed, folderIndex, entryId, isUnread, attempt) Then Return
 
             SetUiCursor(Cursors.Wait)
 
@@ -6184,7 +5966,7 @@ EarlyExit:
 
                     entryId = mailItem.EntryID
 
-                    If _mainWindow.PreventEventLoopForEntryId(entryId) Then
+                    If _mainWindow.BlockDuplicateEventProcessing("Add", entryId) Then
                         Return
                     End If
 
@@ -6199,8 +5981,6 @@ EarlyExit:
                         End If
                         folderIdx += 1
                     Next
-
-                    _mainWindow.TrackListViewEntryId(folderIdx, entryId)
 
                     _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
                                                                       _mainWindow.OnEmailAddedFromEvent(folderIdx, entryId, mailItem, folder)
@@ -6218,52 +5998,43 @@ EarlyExit:
 
             Try
 
-                Dim previousMap As Dictionary(Of Integer, HashSet(Of String)) = _mainWindow.GetTrackedEntryIdsSnapshot()
-                If previousMap.Count = 0 Then
-                    previousMap = _mainWindow.SnapshotListViewEntryIdsAll()
-                    _mainWindow.UpdateTrackedEntryIdsSnapshot(previousMap)
-                End If
+                ' OnItemRemove can be triggered in two scenarios:
+                ' 1. the email is deleted or removed from a monitored folder via FileFriendly
+                ' 2. the email is deletes or removed from a monitored folder via Outlook
 
+                ' However, in neither scenario do we know the EntryID of the deleted / removed email
+                ' I had originally tried to track the EntryIDs by taking a snapshot of them before and after the removal
+                ' However, this approach does not work in second case (removal in Outlook)
+
+                ' Accordingly, on removal the program simply refresh the grid to pick up any changes
 
                 _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-                                                                  Dim currentMap As Dictionary(Of Integer, HashSet(Of String)) = _mainWindow.SnapshotOutlookEntryIdsAll()
-                                                                  If currentMap.Count = 0 Then
-                                                                      currentMap = _mainWindow.SnapshotListViewEntryIdsAll()
+
+                                                                  If _mainWindow.BlockDuplicateEventProcessing("Remove", "unknown") Then
+                                                                      ' already processed so ignore
+                                                                  Else
+                                                                      _mainWindow.SetUiCursor(Cursors.Wait)
+                                                                      Thread.Sleep(500) ' give Outlook some time to settle
+                                                                      _mainWindow.RefreshGrid(False, True)
+                                                                      _mainWindow.SetUiCursor(Cursors.Hand)
                                                                   End If
 
-                                                                  For Each kvp In previousMap
-                                                                      Dim folderIdx As Integer = kvp.Key
-                                                                      Dim previousEntryIds As HashSet(Of String) = kvp.Value
+                                                              End Sub),
+                                                              System.Windows.Threading.DispatcherPriority.Background)
 
-                                                                      Dim currentEntryIds As HashSet(Of String) = Nothing
-                                                                      If Not currentMap.TryGetValue(folderIdx, currentEntryIds) Then
-                                                                          currentEntryIds = New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-                                                                      End If
 
-                                                                      For Each previousEntryId In previousEntryIds
-                                                                          If Not currentEntryIds.Contains(previousEntryId) Then
-                                                                              Dim entryId As String = previousEntryId
 
-                                                                              If _mainWindow.PreventEventLoopForEntryId(entryId) Then
-
-                                                                              Else
-
-                                                                                  _mainWindow.OnEmailRemovedFromEvent(folderIdx, entryId)
-
-                                                                              End If
-                                                                          End If
-                                                                      Next
-                                                                  Next
-
-                                                                  _mainWindow.UpdateTrackedEntryIdsSnapshot(currentMap)
-                                                              End Sub), System.Windows.Threading.DispatcherPriority.Background)
 
             Catch ex As Exception
-                ex = ex
+
             End Try
         End Sub
 
         Private Sub OnItemChange(ByVal Item As Object)
+
+            ' OnItemChange being called when an email is marked read/unread in Outlook
+            ' This event can be triggered by many different changes to an email item (for example changing its priority)
+            ' we are only interested in processing read/unread changes here
 
             Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
 
@@ -6274,20 +6045,13 @@ EarlyExit:
                 If mailItem.EntryID Is Nothing Then Return
 
                 Dim entryId As String = mailItem.EntryID
+                Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
 
-                If _mainWindow.PreventEventLoopForEntryId(entryId) Then Return
+                If _mainWindow.BlockDuplicateEventProcessing(action, entryId) Then Return
 
-                Dim subject As String = ""
-                Dim toAddr As String = ""
-                Dim fromAddr As String = ""
-                Dim receivedTime As Date = Nothing
                 Dim isUnread As Boolean = False
 
                 Try
-                    subject = If(mailItem.Subject, String.Empty)
-                    toAddr = If(mailItem.To, String.Empty)
-                    fromAddr = If(mailItem.SenderEmailAddress, String.Empty)
-                    receivedTime = mailItem.ReceivedTime
                     isUnread = mailItem.UnRead
                 Catch
                 End Try
@@ -6318,15 +6082,11 @@ EarlyExit:
                 Dim eId As String = entryId
 
                 _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-                                                                  _mainWindow.OnEmailChangedFromEvent(folderIdx, eId, subject, toAddr, fromAddr, receivedTime, isUnread, String.Empty, 0, mailItem)
+                                                                  _mainWindow.OnEmailChangedFromEvent(folderIdx, eId, isUnread, 0, mailItem)
+                                                                  _mainWindow.RefreshGrid(False, True)
                                                               End Sub))
             Catch ex As Exception
 
-            Finally
-                '    do this in OnEmailChangedFromEvent instead
-                '    If mailItem IsNot Nothing Then
-                '        System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
-                '    End If
             End Try
         End Sub
 

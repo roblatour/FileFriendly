@@ -1,4 +1,4 @@
-# File Friendly v2.1.1 - Help
+# File Friendly v2.1.2 - Help
 
 File Friendly is designed to help you organize and file your Outlook
 e-mails with speed and accuracy. This help file provides guidance on
@@ -11,7 +11,7 @@ Both appear when File Friendly starts. They can be docked together or
 undocked and used independently. Filtering is easy, just start typing a
 folder name in either window to quickly filter the folders in  the Pick-A-Folder list.
 
-# Refresing the Main Window
+# Refreshing the Main Window
 The main window should auto refresh when changes are made in Outlook - for example if an e-mail is deleted in Outlook the corresponding e-mail should, following a brief delay of a few seconds, be automatically removed from the Main Window.
 
 To manually refresh the main window, click Actions → Refresh and then when prompted select what you want to refresh.

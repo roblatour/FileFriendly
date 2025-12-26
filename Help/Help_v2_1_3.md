@@ -1,4 +1,4 @@
-# File Friendly v2.1.1 - Help
+# File Friendly v2.1.3 - Help
 
 File Friendly is designed to help you organize and file your Outlook
 e-mails with speed and accuracy. This help file provides guidance on
