@@ -3424,18 +3424,21 @@ EarlyExit:
 
     Private Sub ToggleReadStateForSelectedItem()
 
-        ' Show wait cursor while we do COM work
-        SetUiCursor(Cursors.Wait)
-
         Try
+
+            ' Show wait cursor while we do COM work
+            SetUiCursor(Cursors.Wait)
+
             If ListView1.SelectedItems.Count = 0 Then
-                Exit Sub
+                Exit Try
             End If
 
             ' Ensure Outlook is running and session is usable
             If Not EnsureOutlookIsRunning() Then
-                Exit Sub
+                Exit Try
             End If
+
+            RemoveHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
 
             Dim selectionSnapshot As SelectionSnapshot = CaptureSelectionSnapshot()
             Dim indicesToUpdate As New List(Of Integer)()
@@ -3538,6 +3541,11 @@ EarlyExit:
 
                         End If
 
+                        'testing here
+                        Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
+                        Call _MainWindow.BlockDuplicateEventProcessing(action, mailItem.EntryID)
+
+
                         mailItem.Save()
                         indicesToUpdate.Add(index)
                     Catch comEx As System.Runtime.InteropServices.COMException
@@ -3557,13 +3565,17 @@ EarlyExit:
                     End Try
                 Next
 
+
                 ' Update UI for all successfully toggled items
                 For Each index In indicesToUpdate
+
                     Dim updatedRow As ListViewRowClass = CType(ListView1.Items(index), ListViewRowClass)
 
                     ' Get the mail item again to get the updated state
                     Dim entryId As String = updatedRow.OutlookEntryID
+
                     If Not String.IsNullOrEmpty(entryId) Then
+
                         Try
                             Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
                             If mailItem IsNot Nothing Then
@@ -3583,7 +3595,8 @@ EarlyExit:
                     ListView1.Items.Insert(index, updatedRow)
                 Next
 
-                ' Restore selection and focus
+                ' Restore selections and focus
+
                 ListView1.UpdateLayout()
                 If indicesToUpdate.Count > 0 Then
                     ListView1.SelectedIndex = indicesToUpdate(0)
@@ -3609,10 +3622,11 @@ EarlyExit:
             MsgBox(ex.Message,
                    MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
                    "FileFriendly - Toggle Read/Unread Failed")
-        Finally
-            ' Always restore cursor
-            SetUiCursor(Cursors.Arrow)
         End Try
+
+        ' Always restore cursor
+        AddHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
+        SetUiCursor(Cursors.Arrow)
 
     End Sub
 
