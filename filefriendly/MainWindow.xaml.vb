@@ -5720,13 +5720,9 @@ EarlyExit:
 
                 End Try
 
-                ' Ensure there is enough space in the email table when adding a new item
-                If gEmailTableIndex > UBound(gEmailTable) Then
-                    ReDim Preserve gEmailTable(gEmailTableIndex + gEmailTableGrowth)
-                End If
-                gEmailTable(gEmailTableIndex) = emailDetail
                 gEmailTableIndex += 1
                 ReDim Preserve gEmailTable(gEmailTableIndex)
+                gEmailTable(gEmailTableIndex) = emailDetail
 
                 UpdateListView()
 
@@ -6082,7 +6078,6 @@ EarlyExit:
 
         Private ReadOnly EnsureUninteruptedProcessingOfOnItemAdd As New Object
         Private Sub OnItemAdd(ByVal Item As Object)
-
 
             If gIsRefreshing Then Exit Sub
 
