@@ -1,8 +1,4 @@
-﻿Imports System.Diagnostics
-Imports System.Windows.Documents
-Imports System.Windows.Navigation
-
-Partial Public Class LicenseWindow
+﻿Partial Public Class LicenseWindow
 
     Private Sub LicenseWindow_Loaded(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles Me.Loaded
 

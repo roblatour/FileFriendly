@@ -220,6 +220,7 @@
                               AllowDrop="False"
                               Cursor="Hand"
                               IsTextSearchEnabled="False"
+                              SelectionMode="Extended" 
                               GridViewColumnHeader.Click="ListViewColumnHeaderClickedHandler"
                               ContextMenuOpening="ListView1_ContextMenuOpening">
 

@@ -1,10 +1,5 @@
-Imports System
 Imports System.ComponentModel
-Imports System.Windows
-Imports System.Windows.Controls
 Imports System.Windows.Controls.Primitives
-Imports System.Windows.Input
-Imports System.Windows.Media
 
 Namespace ListViewLayout
 

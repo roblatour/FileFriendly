@@ -1,9 +1,5 @@
-﻿Imports System
-Imports System.Reflection
+﻿Imports System.Reflection
 Imports System.Runtime.InteropServices
-Imports System.Globalization
-Imports System.Resources
-Imports System.Windows
 
 ' General Information about an assembly is controlled through the following 
 ' set of attributes. Change these attribute values to modify the information
@@ -13,10 +9,10 @@ Imports System.Windows
 
 <Assembly: AssemblyTitle("Filefriendly")>
 <Assembly: AssemblyDescription("Quickly and easily file e-mails within Microsoft Outlook (R)")>
-<Assembly: AssemblyCompany("Filefriendly")> 
+<Assembly: AssemblyCompany("Filefriendly")>
 <Assembly: AssemblyProduct("Filefriendly")>
 <Assembly: AssemblyCopyright("Copyright @ Rob Latour 2025")>
-<Assembly: AssemblyTrademark("")> 
+<Assembly: AssemblyTrademark("")>
 <Assembly: ComVisible(false)>
 
 'In order to begin building localizable applications, set 
@@ -56,4 +52,4 @@ Imports System.Windows
 ' <Assembly: AssemblyVersion("1.0.*")> 
 
 <Assembly: AssemblyVersion("2.1.4.0")>
-<Assembly: AssemblyFileVersion("2.1.4.0")>
+<Assembly: AssemblyFileVersion("2.1.5.0")>

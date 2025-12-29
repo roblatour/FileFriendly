@@ -1,11 +1,5 @@
-﻿Imports System.Diagnostics.Eventing.Reader
-Imports System.Linq
-Imports System.Management
-Imports System.Net
-Imports System.Security.Policy
-Imports System.Text.RegularExpressions
+﻿Imports System.Linq
 Imports System.Threading
-Imports System.Windows
 Imports System.Windows.Threading
 Imports Microsoft.Office.Interop
 
@@ -63,9 +57,9 @@ Class MainWindow
         Dim sBody As String ' only used when we know we’ll need trailers
     End Structure
 
-    Private EmailTable(1) As StructureOfEmailDetails
-    Private EmailTableIndex As Integer = 0
-    Private Const EmailTableGrowth As Integer = 200 ' when more space is needed, grow the table by this many entries
+    Friend gEmailTable(1) As StructureOfEmailDetails
+    Private gEmailTableIndex As Integer = 0
+    Private Const gEmailTableGrowth As Integer = 200 ' when more space is needed, grow the table by this many entries
 
     Private lTotalEMails As Integer = 0
     Private lTotalEMailsToBeReviewed As Integer = 0
@@ -83,7 +77,7 @@ Class MainWindow
 
     Private gFinalRecommendationTable(1) As ListViewRowClass
 
-    Private gIsRefreshing As Boolean = False
+    Private Shared gIsRefreshing As Boolean = False
     Private gCancelRefresh As Boolean = False
 
     Private Enum QueuedEmailEventType
@@ -107,10 +101,6 @@ Class MainWindow
         Friend Folder As Microsoft.Office.Interop.Outlook.MAPIFolder
     End Structure
 
-    Private ReadOnly gQueuedEmailEvents As New Queue(Of QueuedEmailEvent)
-    Private ReadOnly gQueuedEmailEventsLock As New Object
-    Private gQueuedEmailEventTimer As System.Windows.Threading.DispatcherTimer
-
     Private ReadOnly gListViewEntryIdsLock As New Object
     Private gListViewEntryIdsByFolder As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
 
@@ -127,7 +117,7 @@ Class MainWindow
     Private gStoreDeleteFolders As New Dictionary(Of String, StoreDeleteFolderInfo)(StringComparer.OrdinalIgnoreCase)
 
     ' Number of distinct Outlook mailboxes (stores) detected
-    Private _mailboxCount As Integer = 0
+    Private Shared _TotalMailBoxes As Integer = 0 ' number of mailboxes in Outlook PostOffice
 
     ' Distinct mailbox names encountered during this refresh
     Private ReadOnly _mailboxNames As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
@@ -723,7 +713,6 @@ Class MainWindow
 
         gIsRefreshing = True
         gCancelRefresh = False
-        gQueuedEmailEventTimer?.Stop()
 
         UpdateRefreshMenuState()
 
@@ -751,7 +740,6 @@ Class MainWindow
 
         ' Reset mailbox tracking for this refresh
         _mailboxNames.Clear()
-        _mailboxCount = 0
 
     End Sub
 
@@ -767,7 +755,6 @@ Class MainWindow
         gIsRefreshing = False
         gCancelRefresh = False
         UpdateRefreshMenuState()
-        ScheduleQueuedEmailProcessing()
 
         MenuOptionEnabled("Options", True)
 
@@ -797,12 +784,10 @@ Class MainWindow
 
 
         ' Play a beep if that option is set in the settings except:
-        ' if queued email events are pending; in which case the beep will be played after those are processed
-        ' or
         ' if this was a MS Outlook driven event (as opposed to a startup or user initiated refresh) 
         If My.Settings.SoundScanComplete Then
 
-            If (gQueuedEmailEvents.Count = 0) AndAlso (Not MSOutlookDrivenEvent) Then
+            If (Not MSOutlookDrivenEvent) Then
                 Beep()
             End If
 
@@ -1279,6 +1264,8 @@ Class MainWindow
 
     End Sub
 
+    Delegate Sub RestoreSelectionCallback()
+
     Private Sub ClearGrid()
 
         Me.ListView1.Visibility = Windows.Visibility.Hidden
@@ -1313,8 +1300,6 @@ Class MainWindow
             End If
 
             gIsRefreshing = True
-
-            gQueuedEmailEventTimer?.Stop()
 
             ' Remove arrow from previously sorted header
             If _lastheaderClicked IsNot Nothing Then
@@ -1354,27 +1339,34 @@ Class MainWindow
 
             MemoryManagement.FlushMemory()
 
-            If (Not InitialLoad) AndAlso (MSOutlookDrivenEvent OrElse (Not gRefreshAll)) Then
-                ' if this is an Outlook driven event, we skip the reloading of all folders
+            Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Wait})
+
+            If MSOutlookDrivenEvent Then
+
+                ' if this is an Outlook driven event we skip the finding of all folders
+
             Else
-                Me.Dispatcher.BeginInvoke(New BeginLoadCallback(AddressOf BeginLoad), New Object() {})
 
-                ' if cancelled before we even start, honour it
-                If gCancelRefresh Then GoTo CleanExit
+                If InitialLoad OrElse gRefreshAll Then
 
-                Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Wait})
+                    Me.Dispatcher.BeginInvoke(New BeginLoadCallback(AddressOf BeginLoad), New Object() {})
 
-                SetProcessPriorities("Start Outlook Review")
+                    ' if cancelled before we even start, honour it
+                    If gCancelRefresh Then GoTo CleanExit
 
-                Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {"Folders are being reviewed"})
+                    SetProcessPriorities("Start Outlook Review")
 
-                Collection_of_folders_to_exclude = My.Settings.ExcludedScanFolders 'list of all folders to be excluded from scan
+                    Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {"Folders are being reviewed"})
 
-                Collection_of_folders_to_exclude_is_empty = (Collection_of_folders_to_exclude Is Nothing)
+                    Collection_of_folders_to_exclude = My.Settings.ExcludedScanFolders 'list of all folders to be excluded from scan
 
-                Me.Dispatcher.BeginInvoke(New ShowFoldersCallback(AddressOf ShowFolders), New Object() {})
+                    Collection_of_folders_to_exclude_is_empty = (Collection_of_folders_to_exclude Is Nothing)
 
-                FindAllFolders()
+                    Me.Dispatcher.BeginInvoke(New ShowFoldersCallback(AddressOf ShowFolders), New Object() {})
+
+                    FindAllFolders()
+
+                End If
 
             End If
 
@@ -1390,7 +1382,7 @@ Class MainWindow
 
                     Me.Dispatcher.BeginInvoke(New SetProgressBarVisableCallback(AddressOf SetProgressBarVisable), New Object() {Windows.Visibility.Visible})
 
-                    ProcessAllFolders()
+                    ProcessAllFolders(MSOutlookDrivenEvent)
 
                     If Not gCancelRefresh Then
 
@@ -1470,7 +1462,7 @@ CleanExit:
         Catch ex As Exception
             MsgBox(ex.ToString)
         Finally
-            SetUiCursor(Cursors.Hand)
+            SetUiCursor(Cursors.Arrow)
         End Try
 
         MemoryManagement.FlushMemory()
@@ -1832,7 +1824,9 @@ CleanExit:
         Return sb.ToString()
     End Function
 
-    Private Sub ProcessAllFolders()
+    Private Sub ProcessAllFolders(Optional ByVal MSOutlookDrivenEvent As Boolean = False)
+
+        Static LastFullyLoadedFolderTable() As FolderInfo
 
         'Dim sw As New Stopwatch
         'sw.Start()
@@ -1845,15 +1839,15 @@ CleanExit:
 
         lWhenSent = My.Settings.WhenSent
 
-        EmailTableIndex = 0
+        gEmailTableIndex = 0
 
-        ' Set the size of the EmailTable based on the current estimate of emails to be reviewed
+        ' Set the size of the gEmailTable based on the current estimate of emails to be reviewed
         ' Further resizing will be done later if needed
 
         If lTotalEMailsToBeReviewed <= 0 Then
-            ReDim EmailTable(0)
+            ReDim gEmailTable(0)
         Else
-            ReDim EmailTable(lTotalEMailsToBeReviewed)
+            ReDim gEmailTable(lTotalEMailsToBeReviewed)
         End If
 
         Dim strCollection = New System.Collections.Specialized.StringCollection
@@ -1872,60 +1866,150 @@ CleanExit:
 
         End With
 
-
         '***************************************************************************
         'Step 2 add all info except trailers 
         '***************************************************************************
 
-        Dim ScanThisFolder As Boolean
+        'Dim ScanThisFolder As Boolean
 
-        For x As Int16 = 0 To gFolderTableIndex
+        'For x As Int16 = 0 To gFolderTableIndex
 
-            If gCancelRefresh Then Exit For
+        '    If gCancelRefresh Then Exit For
 
-            ScanThisFolder = False
+        '    ScanThisFolder = False
 
 
-            If gRefreshInbox AndAlso gInboxFolderIndices.Contains(x) AndAlso (gInboxFolderIndices.Count > 0) Then
+        '    If gRefreshInbox AndAlso gInboxFolderIndices.Contains(x) AndAlso (gInboxFolderIndices.Count > 0) Then
 
-                ScanThisFolder = True
+        '        ScanThisFolder = True
 
-            ElseIf gRefreshSent AndAlso gSentFolderIndices.Contains(x) AndAlso (gSentFolderIndices.Count > 0) Then
+        '    ElseIf gRefreshSent AndAlso gSentFolderIndices.Contains(x) AndAlso (gSentFolderIndices.Count > 0) Then
 
-                ScanThisFolder = True
+        '        ScanThisFolder = True
 
-            ElseIf gRefreshAll Then
+        '    ElseIf gRefreshAll AndAlso (Not MSOutlookDrivenEvent) Then
 
-                ScanThisFolder = (strCollection.IndexOf(gFolderNamesTable(x)) = -1) OrElse Collection_of_folders_to_exclude_is_empty
+        '        ScanThisFolder = (strCollection.IndexOf(gFolderNamesTable(x)) = -1) OrElse Collection_of_folders_to_exclude_is_empty
 
-            End If
+        '    End If
 
-            If ScanThisFolder Then
+        '    If ScanThisFolder Then
 
-                If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
-                    Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
-                    Try
-                        ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
-                    Finally
-                        If folder IsNot Nothing Then
-                            System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
-                            folder = Nothing
-                        End If
-                    End Try
+        '        If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
+        '            Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
+        '            Try
+        '                ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+        '            Finally
+        '                If folder IsNot Nothing Then
+        '                    System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+        '                    folder = Nothing
+        '                End If
+        '            End Try
+        '        End If
+
+        '    End If
+
+        'Next
+
+        ' add all other folders last
+
+        If gRefreshAll AndAlso (Not MSOutlookDrivenEvent) Then
+
+            For x As Int16 = 0 To gFolderTableIndex
+
+                If gCancelRefresh Then Exit For
+
+                If (strCollection.IndexOf(gFolderNamesTable(x)) = -1) OrElse Collection_of_folders_to_exclude_is_empty Then
+                    If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
+                        Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
+                        Try
+                            ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                        Finally
+                            If folder IsNot Nothing Then
+                                System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                                folder = Nothing
+                            End If
+                        End Try
+                    End If
+
                 End If
 
-            End If
+            Next
 
-        Next
+            ReDim LastFullyLoadedFolderTable(gFolderTable.Count)
+            LastFullyLoadedFolderTable = gFolderTable
+
+        End If
+
+        If MSOutlookDrivenEvent AndAlso (Not gRefreshInbox) AndAlso (Not LastFullyLoadedFolderTable Is Nothing) Then
+
+            gFolderTable = LastFullyLoadedFolderTable
+
+        End If
+
+        ' add sent items next
+        If gRefreshSent Then
+
+            For x As Int16 = 0 To gFolderTableIndex
+
+                If gCancelRefresh Then Exit For
+
+                If gSentFolderIndices.Contains(x) AndAlso (gSentFolderIndices.Count > 0) Then
+
+                    If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
+                        Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
+                        Try
+                            ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                        Finally
+                            If folder IsNot Nothing Then
+                                System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                                folder = Nothing
+                            End If
+                        End Try
+                    End If
+
+                End If
+
+            Next
+
+        End If
+
+        ' add inboxes 
+
+        If gRefreshInbox Then
+
+            For x As Int16 = 0 To gFolderTableIndex
+
+                If gCancelRefresh Then Exit For
+
+                If gInboxFolderIndices.Contains(x) AndAlso (gInboxFolderIndices.Count > 0) Then
+
+                    If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
+                        Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
+                        Try
+                            ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                        Finally
+                            If folder IsNot Nothing Then
+                                System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
+                                folder = Nothing
+                            End If
+                        End Try
+                    End If
+
+                End If
+
+            Next
+
+        End If
 
         If gCancelRefresh Then GoTo EarlyExit
 
         strCollection = Nothing
 
-        If EmailTableIndex > 0 Then
-            ReDim Preserve EmailTable(EmailTableIndex)
+        If gEmailTableIndex > 0 Then
+            ReDim Preserve gEmailTable(gEmailTableIndex)
         Else
-            ReDim EmailTable(0)
+            ReDim gEmailTable(0)
         End If
 
         '***************************************************************************
@@ -1939,7 +2023,7 @@ CleanExit:
            .SecondaryOrder = SortOrder.Descending
            }
 
-        Array.Sort(EmailTable, lEMailTableSorter)
+        Array.Sort(gEmailTable, lEMailTableSorter)
         lEMailTableSorter = Nothing
 
         '***************************************************************************
@@ -1950,26 +2034,26 @@ CleanExit:
 
         Dim addTrailerFlag As Boolean
 
-        For x = 0 To EmailTable.Length - 1
+        For x = 0 To gEmailTable.Length - 1
 
             If gCancelRefresh Then Exit For
 
             Select Case x
 
                 Case 0
-                    If EmailTable.Length > 1 Then
-                        addTrailerFlag = (EmailTable(x).sSubject = EmailTable(x + 1).sSubject)
+                    If gEmailTable.Length > 1 Then
+                        addTrailerFlag = (gEmailTable(x).sSubject = gEmailTable(x + 1).sSubject)
                     Else
                         addTrailerFlag = False
                     End If
 
-                Case < EmailTable.Length - 1
-                    addTrailerFlag = (EmailTable(x).sSubject = EmailTable(x - 1).sSubject) OrElse
-                                     (EmailTable(x).sSubject = EmailTable(x + 1).sSubject)
+                Case < gEmailTable.Length - 1
+                    addTrailerFlag = (gEmailTable(x).sSubject = gEmailTable(x - 1).sSubject) OrElse
+                                     (gEmailTable(x).sSubject = gEmailTable(x + 1).sSubject)
 
                 Case Else
-                    If EmailTable.Length > 1 Then
-                        addTrailerFlag = (EmailTable(x).sSubject = EmailTable(x - 1).sSubject)
+                    If gEmailTable.Length > 1 Then
+                        addTrailerFlag = (gEmailTable(x).sSubject = gEmailTable(x - 1).sSubject)
                     Else
                         addTrailerFlag = False
                     End If
@@ -1978,34 +2062,34 @@ CleanExit:
 
             If addTrailerFlag Then
 
-                Dim body As String = EmailTable(x).sBody
+                Dim body As String = gEmailTable(x).sBody
 
                 If String.IsNullOrEmpty(body) Then
-                    EmailTable(x).sTrailer = ""
+                    gEmailTable(x).sTrailer = ""
                 Else
-                    EmailTable(x).sTrailer = body
+                    gEmailTable(x).sTrailer = body
                 End If
 
-                EmailTable(x).sTrailer = EmailTable(x).sTrailer.Trim()
+                gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Trim()
 
-                If EmailTable(x).sTrailer.Length = 0 Then
+                If gEmailTable(x).sTrailer.Length = 0 Then
 
-                      EmailTable(x).sTrailer = Chr(255)
+                    gEmailTable(x).sTrailer = Chr(255)
 
                 Else
 
-                    lLastIndex = EmailTable(x).sTrailer.LastIndexOf("Subject:")
+                    lLastIndex = gEmailTable(x).sTrailer.LastIndexOf("Subject:")
                     If lLastIndex > -1 Then
-                        EmailTable(x).sTrailer = EmailTable(x).sTrailer.Remove(0, lLastIndex + 8)
+                        gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(0, lLastIndex + 8)
                     Else
-                        lLastIndex = EmailTable(x).sTrailer.LastIndexOf("SUBJECT:")
+                        lLastIndex = gEmailTable(x).sTrailer.LastIndexOf("SUBJECT:")
                         If lLastIndex > -1 Then
-                            EmailTable(x).sTrailer = EmailTable(x).sTrailer.Remove(0, lLastIndex + 8)
+                            gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(0, lLastIndex + 8)
                         End If
                     End If
 
                     ' Remove stuff so the email chains can be properly linked together
-                    EmailTable(x).sTrailer = EmailTable(x).sTrailer _
+                    gEmailTable(x).sTrailer = gEmailTable(x).sTrailer _
                         .Replace(" ", "") _
                         .Replace(vbCr, "") _
                         .Replace(vbLf, "") _
@@ -2013,7 +2097,7 @@ CleanExit:
                         .Replace(vbTab, "")
 
                     Dim lHoldSubject As String =
-                        EmailTable(x).sSubject _
+                        gEmailTable(x).sSubject _
                             .Replace(" ", "") _
                             .Replace(vbCr, "") _
                             .Replace(vbLf, "") _
@@ -2021,18 +2105,18 @@ CleanExit:
                             .Replace(vbTab, "")
 
                     If lHoldSubject.Length > 0 Then
-                        EmailTable(x).sTrailer = EmailTable(x).sTrailer.Replace(lHoldSubject, "")
+                        gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Replace(lHoldSubject, "")
                     End If
 
                     ' Only work with the first 240 chars to avoid endless growth at the end
-                    If EmailTable(x).sTrailer.Length > 240 Then
-                        EmailTable(x).sTrailer = EmailTable(x).sTrailer.Remove(240)
+                    If gEmailTable(x).sTrailer.Length > 240 Then
+                        gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(240)
                     End If
 
                 End If
 
-                If EmailTable(x).sTrailer.Length > 16 Then
-                    EmailTable(x).sTrailer = ComputeTrailerHash(EmailTable(x).sTrailer)
+                If gEmailTable(x).sTrailer.Length > 16 Then
+                    gEmailTable(x).sTrailer = ComputeTrailerHash(gEmailTable(x).sTrailer)
                 End If
 
             End If
@@ -2091,15 +2175,14 @@ EarlyExit:
             If Not String.IsNullOrEmpty(mailboxName) Then
                 If Not _mailboxNames.Contains(mailboxName) Then
                     _mailboxNames.Add(mailboxName)
-                    _mailboxCount = _mailboxNames.Count
                 End If
             End If
 
             Dim itemCount As Integer = items.Count ' set the number of items in the folder as a variable (to avoid having to access it repeatably in the line below)
 
             ' Ensure there will be enough space in the email table when adding a new items
-            If (EmailTableIndex + itemCount) >= UBound(EmailTable) Then
-                ReDim Preserve EmailTable(EmailTableIndex + Math.Max(EmailTableGrowth, itemCount))
+            If (gEmailTableIndex + itemCount) >= UBound(gEmailTable) Then
+                ReDim Preserve gEmailTable(gEmailTableIndex + Math.Max(gEmailTableGrowth, itemCount))
             End If
 
             For i As Integer = 1 To itemCount
@@ -2113,8 +2196,7 @@ EarlyExit:
                     Continue For
                 End Try
 
-                Dim mail As Microsoft.Office.Interop.Outlook.MailItem =
-                TryCast(obj, Microsoft.Office.Interop.Outlook.MailItem)
+                Dim mail As Microsoft.Office.Interop.Outlook.MailItem = TryCast(obj, Microsoft.Office.Interop.Outlook.MailItem)
                 If mail Is Nothing Then
                     Continue For
                 End If
@@ -2160,8 +2242,8 @@ EarlyExit:
 
                 End With
 
-                EmailTable(EmailTableIndex) = emailDetail
-                EmailTableIndex += 1
+                gEmailTable(gEmailTableIndex) = emailDetail
+                gEmailTableIndex += 1
 
                 lProgressBareRefreshingThresholdCounter += lProgressBarWeightingForEmailReviews
                 If lProgressBareRefreshingThresholdCounter > gThresholdForReportingProgressOnTheProgressBar Then
@@ -2230,7 +2312,7 @@ EarlyExit:
             .SecondarySortColumn = 4, ' date and time 
             .SecondaryOrder = SortOrder.Descending
             }
-            Array.Sort(EmailTable, lEMailTableSorter)
+            Array.Sort(gEmailTable, lEMailTableSorter)
             lEMailTableSorter = Nothing
 
             EstablishRatings_NumberOfUniqueEmailsInAFolder()
@@ -2252,9 +2334,9 @@ EarlyExit:
         Try
             UniqueSubjectsMap.Clear()
 
-            For x As Int32 = 0 To EmailTable.Length - 1
-                Dim subjectAndTrailer As String = EmailTable(x).sSubject & EmailTable(x).sTrailer
-                Dim folderRef As Integer = EmailTable(x).sOriginalFolderReferenceNumber
+            For x As Int32 = 0 To gEmailTable.Length - 1
+                Dim subjectAndTrailer As String = gEmailTable(x).sSubject & gEmailTable(x).sTrailer
+                Dim folderRef As Integer = gEmailTable(x).sOriginalFolderReferenceNumber
 
                 Dim folderCounts As Dictionary(Of Integer, Int16) = Nothing
                 If Not UniqueSubjectsMap.TryGetValue(subjectAndTrailer, folderCounts) Then
@@ -2290,10 +2372,10 @@ EarlyExit:
 
             Dim FinalScoringTable(gFolderTable.Length - 1) As Integer
 
-            For i As Integer = 0 To EmailTable.Length - 1
+            For i As Integer = 0 To gEmailTable.Length - 1
 
                 PrevSubjectAndTrailer = CurrentSubjectAndTrailer
-                CurrentSubjectAndTrailer = EmailTable(i).sSubject & EmailTable(i).sTrailer
+                CurrentSubjectAndTrailer = gEmailTable(i).sSubject & gEmailTable(i).sTrailer
 
                 If CurrentSubjectAndTrailer <> PrevSubjectAndTrailer Then
 
@@ -2311,7 +2393,7 @@ EarlyExit:
                     End If
 
                     ' Don't recommend the original folder
-                    'FinalScoringTable(EmailTable(x).sOriginalFolderReferenceNumber) = 0
+                    'FinalScoringTable(gEmailTable(x).sOriginalFolderReferenceNumber) = 0
 
                     ' Don't recommend any inbox or sent items
                     For Each idx As Integer In gInboxFolderIndices
@@ -2325,17 +2407,17 @@ EarlyExit:
                         End If
                     Next
 
-                    FindTheFolderWithTheGreatestScore(EmailTable(i).sRecommendedFolder1ReferenceNumber, FinalScoringTable)
-                    FindTheFolderWithTheGreatestScore(EmailTable(i).sRecommendedFolder2ReferenceNumber, FinalScoringTable)
-                    FindTheFolderWithTheGreatestScore(EmailTable(i).sRecommendedFolder3ReferenceNumber, FinalScoringTable)
-                    EmailTable(i).sRecommendedFolderFinalReferenceNumber = EmailTable(i).sRecommendedFolder1ReferenceNumber
+                    FindTheFolderWithTheGreatestScore(gEmailTable(i).sRecommendedFolder1ReferenceNumber, FinalScoringTable)
+                    FindTheFolderWithTheGreatestScore(gEmailTable(i).sRecommendedFolder2ReferenceNumber, FinalScoringTable)
+                    FindTheFolderWithTheGreatestScore(gEmailTable(i).sRecommendedFolder3ReferenceNumber, FinalScoringTable)
+                    gEmailTable(i).sRecommendedFolderFinalReferenceNumber = gEmailTable(i).sRecommendedFolder1ReferenceNumber
 
                 Else
 
-                    EmailTable(i).sRecommendedFolder1ReferenceNumber = EmailTable(i - 1).sRecommendedFolder1ReferenceNumber
-                    EmailTable(i).sRecommendedFolder2ReferenceNumber = EmailTable(i - 1).sRecommendedFolder2ReferenceNumber
-                    EmailTable(i).sRecommendedFolder3ReferenceNumber = EmailTable(i - 1).sRecommendedFolder3ReferenceNumber
-                    EmailTable(i).sRecommendedFolderFinalReferenceNumber = EmailTable(i - 1).sRecommendedFolderFinalReferenceNumber
+                    gEmailTable(i).sRecommendedFolder1ReferenceNumber = gEmailTable(i - 1).sRecommendedFolder1ReferenceNumber
+                    gEmailTable(i).sRecommendedFolder2ReferenceNumber = gEmailTable(i - 1).sRecommendedFolder2ReferenceNumber
+                    gEmailTable(i).sRecommendedFolder3ReferenceNumber = gEmailTable(i - 1).sRecommendedFolder3ReferenceNumber
+                    gEmailTable(i).sRecommendedFolderFinalReferenceNumber = gEmailTable(i - 1).sRecommendedFolderFinalReferenceNumber
 
                 End If
 
@@ -2380,35 +2462,33 @@ EarlyExit:
 
     Private Sub UpdateListView()
 
-        Try
-            Me.Dispatcher.Invoke(Sub() StorePendingSelection(SelectionRestoreReason.Refresh))
-        Catch ex As Exception
-        End Try
+        Dim operation1 = Me.Dispatcher.BeginInvoke(Sub() StorePendingSelection(SelectionRestoreReason.Refresh))
+        operation1.Wait()
 
         Try
 
-            'If EmailTableIndex = 0 Then Exit Try
+            'If gEmailTableIndex = 0 Then Exit Try
 
             '' for debugging print the contents of the email table to the console for debugging
-            'For x As Integer = 0 To EmailTableIndex - 1
-            '    Debug.WriteLine(x.ToString & " " & EmailTable(x).sSubject)
+            'For x As Integer = 0 To gEmailTableIndex - 1
+            '    Debug.WriteLine(x.ToString & " " & gEmailTable(x).sSubject)
             'Next
 
-            ' clear the listview1  
-            Me.Dispatcher.BeginInvoke(New ClearListView1Callback(AddressOf ClearListView1), New Object() {})
+            Dim operation2 = Me.Dispatcher.BeginInvoke(New ClearListView1Callback(AddressOf ClearListView1), New Object() {})
+            operation2.Wait()
 
-            If EmailTableIndex = 0 Then Exit Try
+            If gEmailTableIndex = 0 Then Exit Try
 
             ' When only Inbox/Sent are scanned, show those items directly
             If Not gRefreshAll AndAlso (gRefreshInbox OrElse gRefreshSent) Then
 
-                ReDim gFinalRecommendationTable(EmailTableIndex - 1)
+                ReDim gFinalRecommendationTable(gEmailTableIndex - 1)
 
                 Dim line As Integer = 0
 
-                For x As Integer = 1 To EmailTableIndex
+                For x As Integer = 1 To gEmailTableIndex
 
-                    Dim origFolder As Integer = EmailTable(x).sOriginalFolderReferenceNumber
+                    Dim origFolder As Integer = gEmailTable(x).sOriginalFolderReferenceNumber
                     Dim inInbox As Boolean = gInboxFolderIndices.Contains(origFolder)
                     Dim inSent As Boolean = gSentFolderIndices.Contains(origFolder)
 
@@ -2416,7 +2496,7 @@ EarlyExit:
                     If (gRefreshInbox AndAlso inInbox) OrElse (gRefreshSent AndAlso inSent) Then
 
                         Dim row As New ListViewRowClass
-                        With EmailTable(x)
+                        With gEmailTable(x)
                             row.Index = line
                             row.MailBoxName = .sMailBoxName
                             row.Subject = .sSubject
@@ -2441,8 +2521,9 @@ EarlyExit:
                 If line = 0 Then
                     ' nothing to show
                     ReDim gFinalRecommendationTable(0)
-                    Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem),
+                    Dim operation3 = Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem),
                                      New Object() {gFinalRecommendationTable})
+                    operation3.Wait()
                     lTotalRecommendations = 0
                     Exit Try
                 End If
@@ -2451,7 +2532,8 @@ EarlyExit:
 
                 ApplyCurrentSortOrderToFinalTable()
 
-                Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
+                Dim operation4 = Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
+                operation4.Wait()
 
                 lTotalRecommendations = line
 
@@ -2459,11 +2541,11 @@ EarlyExit:
 
             End If
 
-            If EmailTableIndex = 0 Then
+            If gEmailTableIndex = 0 Then
                 Exit Try
             End If
 
-            ReDim gFinalRecommendationTable(EmailTableIndex)
+            ReDim gFinalRecommendationTable(gEmailTableIndex)
 
             Dim lLineNumber As Integer = 0
             Dim lNextIndex As Integer = 0
@@ -2481,7 +2563,7 @@ EarlyExit:
 
             Dim lFlagThisEmailChain As Boolean
 
-            For x As Integer = 0 To EmailTableIndex - 1
+            For x As Integer = 0 To gEmailTableIndex - 1
 
                 lRecommendedIndexForAllEntriesInChainFinal = -1
                 lRecommendedIndexForAllEntriesInChain1 = -1
@@ -2491,31 +2573,31 @@ EarlyExit:
                 lFlagThisEmailChain = False
 
                 lNextIndex = x
-                lFirstSubjectPlusTrailer = EmailTable(x).sSubject & EmailTable(x).sTrailer
+                lFirstSubjectPlusTrailer = gEmailTable(x).sSubject & gEmailTable(x).sTrailer
                 lNextSubjectPlusTrailer = lFirstSubjectPlusTrailer
 
                 ' for each email chain
                 ' flag the chain to be reported if it contains an inbox item, sent item, or and email store anyplace other than the recommended folder
-                While (lFirstSubjectPlusTrailer = lNextSubjectPlusTrailer) And (lNextIndex <= (EmailTableIndex - 1))
+                While (lFirstSubjectPlusTrailer = lNextSubjectPlusTrailer) And (lNextIndex <= (gEmailTableIndex - 1))
 
-                    If gInboxFolderIndices.Contains(EmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
+                    If gInboxFolderIndices.Contains(gEmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
 
                         If gRefreshInbox Then lFlagThisEmailChain = True
 
-                    ElseIf gSentFolderIndices.Contains(EmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
+                    ElseIf gSentFolderIndices.Contains(gEmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
 
                         If gRefreshSent Then lFlagThisEmailChain = True
 
                     Else
 
-                        If EmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber > -1 Then
+                        If gEmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber > -1 Then
 
-                            If EmailTable(lNextIndex).sOriginalFolderReferenceNumber <> EmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber Then
+                            If gEmailTable(lNextIndex).sOriginalFolderReferenceNumber <> gEmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber Then
 
-                                lRecommendedIndexForAllEntriesInChainFinal = EmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber
-                                lRecommendedIndexForAllEntriesInChain1 = EmailTable(lNextIndex).sRecommendedFolder1ReferenceNumber
-                                lRecommendedIndexForAllEntriesInChain2 = EmailTable(lNextIndex).sRecommendedFolder2ReferenceNumber
-                                lRecommendedIndexForAllEntriesInChain3 = EmailTable(lNextIndex).sRecommendedFolder3ReferenceNumber
+                                lRecommendedIndexForAllEntriesInChainFinal = gEmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber
+                                lRecommendedIndexForAllEntriesInChain1 = gEmailTable(lNextIndex).sRecommendedFolder1ReferenceNumber
+                                lRecommendedIndexForAllEntriesInChain2 = gEmailTable(lNextIndex).sRecommendedFolder2ReferenceNumber
+                                lRecommendedIndexForAllEntriesInChain3 = gEmailTable(lNextIndex).sRecommendedFolder3ReferenceNumber
                                 lFlagThisEmailChain = True
                                 Exit While
 
@@ -2525,8 +2607,8 @@ EarlyExit:
                     End If
 
                     lNextIndex += 1
-                    If (lNextIndex <= (EmailTableIndex - 1)) Then
-                        lNextSubjectPlusTrailer = EmailTable(lNextIndex).sSubject & EmailTable(lNextIndex).sTrailer
+                    If (lNextIndex <= (gEmailTableIndex - 1)) Then
+                        lNextSubjectPlusTrailer = gEmailTable(lNextIndex).sSubject & gEmailTable(lNextIndex).sTrailer
                     End If
 
                 End While
@@ -2538,19 +2620,19 @@ EarlyExit:
                     If lRecommendedIndexForAllEntriesInChainFinal = -1 Then
 
                         lNextIndex = x
-                        lFirstSubjectPlusTrailer = EmailTable(x).sSubject & EmailTable(x).sTrailer
+                        lFirstSubjectPlusTrailer = gEmailTable(x).sSubject & gEmailTable(x).sTrailer
                         lNextSubjectPlusTrailer = lFirstSubjectPlusTrailer
 
-                        While (lFirstSubjectPlusTrailer = lNextSubjectPlusTrailer) And (lNextIndex <= (EmailTableIndex - 1))
+                        While (lFirstSubjectPlusTrailer = lNextSubjectPlusTrailer) And (lNextIndex <= (gEmailTableIndex - 1))
 
-                            If Not gInboxFolderIndices.Contains(EmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
+                            If Not gInboxFolderIndices.Contains(gEmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
 
-                                If Not gSentFolderIndices.Contains(EmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
+                                If Not gSentFolderIndices.Contains(gEmailTable(lNextIndex).sOriginalFolderReferenceNumber) Then
 
-                                    lRecommendedIndexForAllEntriesInChainFinal = EmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber
-                                    lRecommendedIndexForAllEntriesInChain1 = EmailTable(lNextIndex).sRecommendedFolder1ReferenceNumber
-                                    lRecommendedIndexForAllEntriesInChain2 = EmailTable(lNextIndex).sRecommendedFolder2ReferenceNumber
-                                    lRecommendedIndexForAllEntriesInChain3 = EmailTable(lNextIndex).sRecommendedFolder3ReferenceNumber
+                                    lRecommendedIndexForAllEntriesInChainFinal = gEmailTable(lNextIndex).sRecommendedFolderFinalReferenceNumber
+                                    lRecommendedIndexForAllEntriesInChain1 = gEmailTable(lNextIndex).sRecommendedFolder1ReferenceNumber
+                                    lRecommendedIndexForAllEntriesInChain2 = gEmailTable(lNextIndex).sRecommendedFolder2ReferenceNumber
+                                    lRecommendedIndexForAllEntriesInChain3 = gEmailTable(lNextIndex).sRecommendedFolder3ReferenceNumber
                                     lFlagThisEmailChain = True
                                     Exit While
 
@@ -2560,8 +2642,8 @@ EarlyExit:
 
                             lNextIndex += 1
 
-                            If (lNextIndex <= (EmailTableIndex - 1)) Then
-                                lNextSubjectPlusTrailer = EmailTable(lNextIndex).sSubject & EmailTable(lNextIndex).sTrailer
+                            If (lNextIndex <= (gEmailTableIndex - 1)) Then
+                                lNextSubjectPlusTrailer = gEmailTable(lNextIndex).sSubject & gEmailTable(lNextIndex).sTrailer
                             End If
 
 
@@ -2574,12 +2656,12 @@ EarlyExit:
 
                 If lFlagThisEmailChain Then
 
-                    Dim lStartingSubjectPlusTrailer As String = EmailTable(x).sSubject & EmailTable(x).sTrailer
+                    Dim lStartingSubjectPlusTrailer As String = gEmailTable(x).sSubject & gEmailTable(x).sTrailer
                     Dim lChainEntry As Integer = x
 
-                    While lStartingSubjectPlusTrailer = EmailTable(lChainEntry).sSubject & EmailTable(lChainEntry).sTrailer
+                    While lStartingSubjectPlusTrailer = gEmailTable(lChainEntry).sSubject & gEmailTable(lChainEntry).sTrailer
 
-                        With EmailTable(lChainEntry)
+                        With gEmailTable(lChainEntry)
 
                             gFinalRecommendationTable(lLineNumber) = New ListViewRowClass
                             gFinalRecommendationTable(lLineNumber).Index = lChainEntry
@@ -2601,7 +2683,7 @@ EarlyExit:
                         End With
 
                         lChainEntry += 1
-                        If lChainEntry > EmailTableIndex - 1 Then
+                        If lChainEntry > gEmailTableIndex - 1 Then
                             Exit While
                         End If
 
@@ -2613,16 +2695,16 @@ EarlyExit:
 
             Next
 
-            EmailTable = Nothing
+            ' gEmailTable = Nothing ' testing here
 
             ReDim Preserve gFinalRecommendationTable(lLineNumber - 1)
 
             ApplyCurrentSortOrderToFinalTable()
 
-            Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
+            Dim operation5 = Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
+            operation5.Wait()
 
             lTotalRecommendations = lLineNumber
-
 
         Catch ex As Exception
 
@@ -2631,7 +2713,7 @@ EarlyExit:
         End Try
 
         Try
-            Me.Dispatcher.BeginInvoke(New SetListViewSelectedItemCallback(AddressOf SetListViewSelectedItem), New Object() {})
+            Me.Dispatcher.BeginInvoke(New RestoreSelectionCallback(AddressOf RestorePendingSelection), New Object() {})
         Catch ex As Exception
         End Try
 
@@ -2693,7 +2775,7 @@ EarlyExit:
     Private Sub ListView1_MouseEnter(ByVal sender As Object, ByVal e As System.Windows.Input.MouseEventArgs) Handles ListView1.MouseEnter
 
         If Me.Cursor IsNot Cursors.Wait Then
-            Me.Cursor = Cursors.Hand
+            Me.Cursor = Cursors.Arrow
         End If
 
     End Sub
@@ -2753,7 +2835,6 @@ EarlyExit:
         For Each obj In ListView1.SelectedItems
             Dim row = TryCast(obj, ListViewRowClass)
             If row Is Nothing Then Continue For
-            If String.IsNullOrEmpty(row.OutlookEntryID) Then Continue For
 
             Dim entry As New SelectionEntry With {
                 .OutlookEntryId = row.OutlookEntryID,
@@ -2899,14 +2980,19 @@ EarlyExit:
 
             End If
 
+            Dim sourceIndexToListViewIndex As New Dictionary(Of Integer, Integer)
             Dim idToIndex As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
+
             For i As Integer = 0 To ListView1.Items.Count - 1
                 Dim row = TryCast(ListView1.Items(i), ListViewRowClass)
                 If row Is Nothing Then Continue For
-                If String.IsNullOrEmpty(row.OutlookEntryID) Then Continue For
 
-                If Not idToIndex.ContainsKey(row.OutlookEntryID) Then
-                    idToIndex.Add(row.OutlookEntryID, i)
+                sourceIndexToListViewIndex.Add(row.Index, i)
+
+                If Not String.IsNullOrEmpty(row.OutlookEntryID) Then
+                    If Not idToIndex.ContainsKey(row.OutlookEntryID) Then
+                        idToIndex.Add(row.OutlookEntryID, i)
+                    End If
                 End If
             Next
 
@@ -2924,12 +3010,15 @@ EarlyExit:
             For Each entry In snapshot.Entries
                 If entry.Index > maxSnapshotIndex Then maxSnapshotIndex = entry.Index
                 Dim idx As Integer
-                If idToIndex.TryGetValue(entry.OutlookEntryId, idx) Then
+
+                If sourceIndexToListViewIndex.TryGetValue(entry.Index, idx) Then
+                    targetIndices.Add(idx)
+                ElseIf Not String.IsNullOrEmpty(entry.OutlookEntryId) AndAlso idToIndex.TryGetValue(entry.OutlookEntryId, idx) Then
                     targetIndices.Add(idx)
                 End If
             Next
 
-            If (reason <> SelectionRestoreReason.UserDelete AndAlso reason <> SelectionRestoreReason.OutlookDelete) AndAlso gAutoChainSelect AndAlso selectedChainKeys.Count > 0 Then
+            If (reason <> SelectionRestoreReason.UserDelete AndAlso reason <> SelectionRestoreReason.OutlookDelete AndAlso reason <> SelectionRestoreReason.Refresh) AndAlso gAutoChainSelect AndAlso selectedChainKeys.Count > 0 Then
                 For i As Integer = 0 To ListView1.Items.Count - 1
                     Dim row = TryCast(ListView1.Items(i), ListViewRowClass)
                     If row Is Nothing Then Continue For
@@ -3030,12 +3119,17 @@ EarlyExit:
                 Dim selectedItem = ListView1.SelectedItem
                 ListView1.ScrollIntoView(selectedItem)
                 Dispatcher.BeginInvoke(Sub()
-                                           Dim selectedContainer = TryCast(ListView1.ItemContainerGenerator.ContainerFromIndex(ListView1.SelectedIndex), System.Windows.Controls.ListViewItem)
-                                           If selectedContainer IsNot Nothing Then
-                                               selectedContainer.Focus()
-                                           Else
+                                           Try
+                                               Dim selectedContainer = TryCast(ListView1.ItemContainerGenerator.ContainerFromIndex(ListView1.SelectedIndex), System.Windows.Controls.ListViewItem)
+                                               If selectedContainer Is Nothing Then
+                                                   ListView1.Focus()
+                                               Else
+                                                   selectedContainer.Focus()
+                                               End If
+                                           Catch
                                                ListView1.Focus()
-                                           End If
+                                           End Try
+
                                        End Sub, System.Windows.Threading.DispatcherPriority.Background)
             End If
 
@@ -3322,16 +3416,19 @@ EarlyExit:
 
     End Sub
 
+    Enum FirstSelectionState
+        Unknown
+        ReadToUnread
+        UnreadToRead
+    End Enum
+
     Private Sub ToggleReadStateForSelectedItem()
 
         ' Show wait cursor while we do COM work
         SetUiCursor(Cursors.Wait)
 
-        Dim entryId As String = ""
-
         Try
-            Dim selectedRow As ListViewRowClass = TryCast(ListView1.SelectedItem, ListViewRowClass)
-            If selectedRow Is Nothing Then
+            If ListView1.SelectedItems.Count = 0 Then
                 Exit Sub
             End If
 
@@ -3340,128 +3437,172 @@ EarlyExit:
                 Exit Sub
             End If
 
-            ' Get the Outlook item
-            entryId = selectedRow.OutlookEntryID
-            If String.IsNullOrEmpty(entryId) Then
-                Exit Sub
-            End If
+            Dim selectionSnapshot As SelectionSnapshot = CaptureSelectionSnapshot()
+            Dim indicesToUpdate As New List(Of Integer)()
+            Dim errorOccurred As Boolean = False
 
-            Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
+            gSuppressUpdatesToDetailBox = True
 
-            ' We will try GetItemFromID up to 2 times:
-            '  - first with the current session
-            '  - on RPC disconnect errors, rebuild session and retry once
-            Dim attempt As Integer = 0
-            While attempt < 2 AndAlso mailItem Is Nothing
+            ' if multiple items are selected, we can't just toggle each one
+            ' the user will be prompted to "Mark as Read" or "Mark as Unread" based on the first selected item
+            ' so rather than simply toggling the read/unread state in the UI
+            ' we need to figure out what the first entry will toggle to and then toggle all selected items to that same state
+            ' (all in the name of usability and consistency)
 
-                Try
-                    mailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
+            Dim firstSelection As FirstSelectionState = FirstSelectionState.Unknown
 
-                Catch comEx As System.Runtime.InteropServices.COMException
-                    Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
-                    Const RPC_E_DISCONNECTED As Integer = &H800706BE
+            Try
+                ' Process all selected items
+                For Each selectedItem In ListView1.SelectedItems
+                    Dim index As Integer = selectedItem.Index
+                    Dim selectedRow As ListViewRowClass = TryCast(ListView1.Items(index), ListViewRowClass)
 
-                    If (comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED) AndAlso attempt = 0 Then
-                        ' Drop and rebuild the Outlook session once
-                        oNS = Nothing
-                        oApp = Nothing
-
-                        If Not EnsureOutlookIsRunning() Then
-                            Exit Sub
-                        End If
-
-                        ' Let the loop retry GetItemFromID with fresh session
-                        mailItem = Nothing
-                    Else
-                        ' Any other COM error, or second failure: show a friendly message and bail
-                        MsgBox("FileFriendly could not access the selected e-mail in Outlook." & vbCrLf & vbCrLf &
-                               "Details: " & comEx.Message,
-                               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                               "FileFriendly - Toggle Read/Unread Failed")
-                        Exit Sub
+                    If selectedRow Is Nothing Then
+                        Continue For
                     End If
 
-                Catch ex As Exception
-                    MsgBox("FileFriendly could not access the selected e-mail in Outlook." & vbCrLf & vbCrLf &
-                           "Details: " & ex.Message,
-                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Toggle Read/Unread Failed")
-                    Exit Sub
-                End Try
+                    Dim entryId As String = selectedRow.OutlookEntryID
+                    If String.IsNullOrEmpty(entryId) Then
+                        Continue For
+                    End If
 
-                attempt += 1
-            End While
+                    Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
 
-            If mailItem Is Nothing Then
-                ' After retry we still did not get a MailItem
-                Exit Sub
-            End If
+                    ' We will try GetItemFromID up to 2 times:
+                    '  - first with the current session
+                    '  - on RPC disconnect errors, rebuild session and retry once
+                    Dim attempt As Integer = 0
+                    While attempt < 2 AndAlso mailItem Is Nothing
 
-            ' Toggle the unread flag in Outlook (this can also hit RPC errors)
-            Dim toggleSucceeded As Boolean = False
-            Try
-                Dim currentlyUnread As Boolean = mailItem.UnRead
-                mailItem.UnRead = Not currentlyUnread
-                mailItem.Save()
-                toggleSucceeded = True
-            Catch comEx As System.Runtime.InteropServices.COMException
-                Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
-                Const RPC_E_DISCONNECTED As Integer = &H800706BE
+                        Try
+                            mailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
 
-                If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
-                    MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
-                           "It appears that Outlook became unavailable while the change was being applied." & vbCrLf & vbCrLf &
-                           "Please ensure Outlook is running and try again.",
-                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Toggle Read/Unread Failed")
-                Else
-                    MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
-                           "Details: " & comEx.Message,
-                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Toggle Read/Unread Failed")
+                        Catch comEx As System.Runtime.InteropServices.COMException
+                            Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                            Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                            If (comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED) AndAlso attempt = 0 Then
+                                ' Drop and rebuild the Outlook session once
+                                oNS = Nothing
+                                oApp = Nothing
+
+                                If Not EnsureOutlookIsRunning() Then
+                                    errorOccurred = True
+                                    Exit While
+                                End If
+
+                                ' Let the loop retry GetItemFromID with fresh session
+                                mailItem = Nothing
+                            Else
+                                ' Any other COM error, or second failure: stop processing
+                                errorOccurred = True
+                                Exit While
+                            End If
+
+                        Catch ex As Exception
+                            errorOccurred = True
+                            Exit While
+                        End Try
+
+                        attempt += 1
+                    End While
+
+                    If mailItem Is Nothing Then
+                        ' Could not get mail item, skip this one
+                        Continue For
+                    End If
+
+                    If firstSelection = FirstSelectionState.Unknown Then
+                        If mailItem.UnRead Then
+                            firstSelection = FirstSelectionState.UnreadToRead
+                        Else
+                            firstSelection = FirstSelectionState.ReadToUnread
+                        End If
+                    End If
+
+                    ' set the read/unread flag in Outlook
+                    Try
+
+                        If mailItem.UnRead Then
+
+                            If firstSelection = FirstSelectionState.UnreadToRead Then
+                                ' Mark as read
+                                mailItem.UnRead = False
+                            End If
+                        Else
+
+                            If firstSelection = FirstSelectionState.ReadToUnread Then
+                                ' Mark as unread
+                                mailItem.UnRead = True
+                            End If
+
+                        End If
+
+                        mailItem.Save()
+                        indicesToUpdate.Add(index)
+                    Catch comEx As System.Runtime.InteropServices.COMException
+                        Const RPC_E_SERVER_UNAVAILABLE As Integer = &H800706BA
+                        Const RPC_E_DISCONNECTED As Integer = &H800706BE
+
+                        If comEx.HResult = RPC_E_SERVER_UNAVAILABLE OrElse comEx.HResult = RPC_E_DISCONNECTED Then
+                            errorOccurred = True
+                            Exit For
+                        Else
+                            ' Skip this item and continue with others
+                            Continue For
+                        End If
+                    Catch ex As Exception
+                        ' Skip this item and continue with others
+                        Continue For
+                    End Try
+                Next
+
+                ' Update UI for all successfully toggled items
+                For Each index In indicesToUpdate
+                    Dim updatedRow As ListViewRowClass = CType(ListView1.Items(index), ListViewRowClass)
+
+                    ' Get the mail item again to get the updated state
+                    Dim entryId As String = updatedRow.OutlookEntryID
+                    If Not String.IsNullOrEmpty(entryId) Then
+                        Try
+                            Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = TryCast(oNS.GetItemFromID(entryId), Microsoft.Office.Interop.Outlook.MailItem)
+                            If mailItem IsNot Nothing Then
+                                If mailItem.UnRead Then
+                                    updatedRow.UnRead = System.Windows.FontWeights.Bold
+                                Else
+                                    updatedRow.UnRead = System.Windows.FontWeights.Normal
+                                End If
+                            End If
+                        Catch
+                            ' Skip if we can't get the item
+                        End Try
+                    End If
+
+                    ' Replace item in the ListView so the binding updates
+                    ListView1.Items.RemoveAt(index)
+                    ListView1.Items.Insert(index, updatedRow)
+                Next
+
+                ' Restore selection and focus
+                ListView1.UpdateLayout()
+                If indicesToUpdate.Count > 0 Then
+                    ListView1.SelectedIndex = indicesToUpdate(0)
+                    ListView1.ScrollIntoView(ListView1.Items(indicesToUpdate(0)))
                 End If
-                Exit Sub
-            Catch ex As Exception
 
-                MsgBox("FileFriendly could not update the read/unread state in Outlook." & vbCrLf & vbCrLf &
-                       "Details: " & ex.Message,
-                       MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                       "FileFriendly - Toggle Read/Unread Failed")
-                Exit Sub
+                ' Also update details pane and counters
+                UpdateDetails()
+
+                If errorOccurred Then
+                    MsgBox("FileFriendly could not update the read/unread state for all selected items." & vbCrLf & vbCrLf &
+                           "Some items may have been successfully toggled, but not all.",
+                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
+                           "FileFriendly - Toggle Read/Unread Partially Failed")
+                End If
+
+            Finally
+                gSuppressUpdatesToDetailBox = False
             End Try
-
-            If Not toggleSucceeded Then
-                Exit Sub
-            End If
-
-            ' Reflect the new state in the ListView row
-            Dim index As Integer = ListView1.SelectedIndex
-
-            Dim updatedRow As ListViewRowClass = CType(ListView1.Items(index), ListViewRowClass)
-
-            If mailItem.UnRead Then
-                updatedRow.UnRead = System.Windows.FontWeights.Bold
-            Else
-                updatedRow.UnRead = System.Windows.FontWeights.Normal
-            End If
-
-            ' Replace item in the ListView so the binding updates
-            ListView1.Items.RemoveAt(index)
-            ListView1.Items.Insert(index, updatedRow)
-            ListView1.SelectedIndex = index
-            ListView1.UpdateLayout()
-            ListView1.ScrollIntoView(updatedRow)
-            Dispatcher.BeginInvoke(Sub()
-                                       Dim selectedContainer = TryCast(ListView1.ItemContainerGenerator.ContainerFromIndex(index), System.Windows.Controls.ListViewItem)
-                                       If selectedContainer IsNot Nothing Then
-                                           selectedContainer.Focus()
-                                       Else
-                                           ListView1.Focus()
-                                       End If
-                                   End Sub, System.Windows.Threading.DispatcherPriority.Background)
-
-            ' Also update details pane and counters
-            UpdateDetails()
 
         Catch ex As Exception
 
@@ -3470,7 +3611,7 @@ EarlyExit:
                    "FileFriendly - Toggle Read/Unread Failed")
         Finally
             ' Always restore cursor
-            SetUiCursor(Cursors.Hand)
+            SetUiCursor(Cursors.Arrow)
         End Try
 
     End Sub
@@ -3886,7 +4027,7 @@ EarlyExit:
                    MsgBoxStyle.Exclamation,
                    "FileFriendly - Open Fail")
         Finally
-            SetUiCursor(Cursors.Hand)
+            SetUiCursor(Cursors.Arrow)
         End Try
 
     End Sub
@@ -4165,7 +4306,7 @@ EarlyExit:
                "FileFriendly - Outlook Error")
             ReturnCode = ""
         Finally
-            SetUiCursor(Cursors.Hand)
+            SetUiCursor(Cursors.Arrow)
         End Try
 
         Return ReturnCode
@@ -4429,7 +4570,7 @@ EarlyExit:
 
                             Else
 
-                                Dim EmailID As String = ListView1.Items(IndexToAction).OutlookEntryID
+                                Dim EntryIDFromListView As String = ListView1.Items(IndexToAction).OutlookEntryID
 
                                 Dim x As Integer
 
@@ -4451,7 +4592,7 @@ EarlyExit:
                                 'File the message
                                 Dim newId As String = FileMessage(Action,
                                                   ListView1.Items(IndexToAction).FixedIndex,
-                                                  EmailID,
+                                                  EntryIDFromListView,
                                                   SourceEntryID,
                                                   SourceStoreID,
                                                   TargetEntryID,
@@ -4579,8 +4720,66 @@ EarlyExit:
 
     Private Sub RemoveAnEntry(ByVal IndexToAction As Integer)
 
-        gFinalRecommendationTable(ListView1.Items(IndexToAction).FixedIndex).Index = -1
+        ' Remove an entry from the:
+        ' 1. List view
+        ' 2. final recommendation table
+        ' 3. email table
+
+        Dim entryIDToBeRemoved As String = ListView1.Items(IndexToAction).OutlookEntryID
+
+        ' Remove from the list view
         ListView1.Items.RemoveAt(IndexToAction)
+
+        ' remove from the final recommendation table; resize the table when done
+        Dim entryFound As Boolean
+
+        entryFound = False
+        For i = 1 To gFinalRecommendationTable.Length - 1
+
+            If gFinalRecommendationTable(i - 1).OutlookEntryID = entryIDToBeRemoved Then
+                entryFound = True
+                Continue For
+            End If
+
+            If entryFound Then
+                gFinalRecommendationTable(i - 1) = gFinalRecommendationTable(i)
+            End If
+
+        Next
+
+        If entryFound Then
+            If gFinalRecommendationTable.Length > 1 Then
+                ReDim Preserve gFinalRecommendationTable(gFinalRecommendationTable.Length - 2)
+            Else
+                ReDim gFinalRecommendationTable(0)
+            End If
+        End If
+
+        ' Remove the entry for the email table; resize the table when done
+
+        entryFound = False
+        For i = 1 To gEmailTable.Length - 1
+
+            If gEmailTable(i).sOutlookEntryID = entryIDToBeRemoved Then
+                entryFound = True
+                gEmailTableIndex -= 1
+                Continue For
+            End If
+
+            If entryFound Then
+                gEmailTable(i - 1) = gEmailTable(i)
+            End If
+
+        Next
+
+        If entryFound Then
+            If gEmailTable.Length > 1 Then
+                ReDim Preserve gEmailTable(gEmailTable.Length - 2)
+            Else
+                ReDim gEmailTable(0)
+            End If
+        End If
+
 
     End Sub
 
@@ -4982,7 +5181,9 @@ EarlyExit:
 
         Dim mailboxColumn As GridViewColumn = gridView.Columns(mailboxColumnIndex)
 
-        If _mailboxCount <= 1 Then
+        'If _mailboxCount <= 1 Then
+
+        If _TotalMailBoxes <= 1 Then
             ' Single mailbox: hide column
             mailboxColumn.Width = 0
             mailboxColumn.Header = String.Empty
@@ -5097,7 +5298,7 @@ EarlyExit:
 
         ' ---------- 2. Mailbox column (content-based, or hidden) ----------
 
-        Dim mailboxVisible As Boolean = (_mailboxCount > 1)
+        Dim mailboxVisible As Boolean = (_TotalMailBoxes > 1)
         Dim mailboxWidth As Double = 0
 
         If mailboxVisible Then
@@ -5470,81 +5671,6 @@ EarlyExit:
 
     End Sub
 
-    Private Function QueueEmailEvent(ByVal eventType As QueuedEmailEventType, ByVal folderIndex As Integer, ByVal entryId As String, Optional ByVal subject As String = "", Optional ByVal toAddr As String = "", Optional ByVal fromAddr As String = "", Optional ByVal receivedTime As Date = Nothing, Optional ByVal isUnread As Boolean = False, Optional ByVal body As String = "", Optional ByVal attempt As Integer = 0, Optional mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing, Optional ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing) As Boolean
-
-        If Not gIsRefreshing Then
-            Return False
-        End If
-
-        Dim queued As New QueuedEmailEvent With {
-            .EventType = eventType,
-            .FolderIndex = folderIndex,
-            .EntryId = entryId,
-            .Subject = If(subject, String.Empty),
-            .ToAddr = If(toAddr, String.Empty),
-            .FromAddr = If(fromAddr, String.Empty),
-            .ReceivedTime = receivedTime,
-            .IsUnread = isUnread,
-            .Body = If(body, String.Empty),
-            .Attempt = attempt,
-            .MailItem = mailItem,
-            .Folder = folder
-             }
-
-        SyncLock gQueuedEmailEventsLock
-            gQueuedEmailEvents.Enqueue(queued)
-        End SyncLock
-
-        Return True
-
-    End Function
-
-    Private Sub ScheduleQueuedEmailProcessing()
-
-        If gIsRefreshing Then Return
-
-        SyncLock gQueuedEmailEventsLock
-            If gQueuedEmailEvents.Count = 0 Then Return
-        End SyncLock
-
-        If gQueuedEmailEventTimer Is Nothing Then
-            gQueuedEmailEventTimer = New System.Windows.Threading.DispatcherTimer()
-            AddHandler gQueuedEmailEventTimer.Tick, AddressOf ProcessQueuedEmailEvents
-        End If
-
-        gQueuedEmailEventTimer.Stop()
-        gQueuedEmailEventTimer.Interval = TimeSpan.FromSeconds(3) ' wait three seconds before processing the queued events
-        gQueuedEmailEventTimer.Start()
-
-    End Sub
-
-    Private Sub ProcessQueuedEmailEvents(ByVal sender As Object, ByVal e As EventArgs, Optional ByVal mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing, Optional ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing)
-
-        If gIsRefreshing Then Return
-
-        If gQueuedEmailEventTimer IsNot Nothing Then gQueuedEmailEventTimer.Stop()
-
-        Dim pending As List(Of QueuedEmailEvent)
-
-        SyncLock gQueuedEmailEventsLock
-            If gQueuedEmailEvents.Count = 0 Then Return
-            pending = New List(Of QueuedEmailEvent)(gQueuedEmailEvents)
-            gQueuedEmailEvents.Clear()
-        End SyncLock
-
-        For Each queuedEvent In pending
-            Select Case queuedEvent.EventType
-                Case QueuedEmailEventType.Added
-                    OnEmailAddedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, queuedEvent.Subject, queuedEvent.ToAddr, queuedEvent.FromAddr, queuedEvent.ReceivedTime, queuedEvent.IsUnread, queuedEvent.Body)
-                Case QueuedEmailEventType.Removed
-                    OnEmailRemovedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId)
-                Case QueuedEmailEventType.Changed
-                    OnEmailChangedFromEvent(queuedEvent.FolderIndex, queuedEvent.EntryId, queuedEvent.IsUnread, queuedEvent.Attempt)
-            End Select
-        Next
-
-    End Sub
-
     Private EnsureUninteruptedProcessingOfOnEmailAddedFromEvent As New Object
 
     Friend Sub OnEmailAddedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal subject As String, ByVal toAddr As String, ByVal fromAddr As String, ByVal receivedTime As Date, ByVal isUnread As Boolean, ByVal body As String)
@@ -5556,8 +5682,6 @@ EarlyExit:
                 If String.IsNullOrEmpty(entryId) OrElse folderIndex < 0 OrElse folderIndex >= gFolderTable.Length Then Return
 
                 SetUiCursor(Cursors.Wait)
-
-                If QueueEmailEvent(QueuedEmailEventType.Added, folderIndex, entryId, subject, toAddr, fromAddr, receivedTime, isUnread, body) Then Return
 
                 Dim emailDetail = New StructureOfEmailDetails() With {
                     .sOriginalFolderReferenceNumber = CShort(folderIndex),
@@ -5579,77 +5703,77 @@ EarlyExit:
                     End With
 
                 Catch ex As Exception
-                    ex = ex
+
                 End Try
 
                 ' Ensure there is enough space in the email table when adding a new item
-                If EmailTableIndex > UBound(EmailTable) Then
-                    ReDim Preserve EmailTable(EmailTableIndex + EmailTableGrowth)
+                If gEmailTableIndex > UBound(gEmailTable) Then
+                    ReDim Preserve gEmailTable(gEmailTableIndex + gEmailTableGrowth)
                 End If
-                EmailTable(EmailTableIndex) = emailDetail
-                EmailTableIndex += 1
+                gEmailTable(gEmailTableIndex) = emailDetail
+                gEmailTableIndex += 1
+                ReDim Preserve gEmailTable(gEmailTableIndex)
 
-                ScheduleRefreshGrid()
+                UpdateListView()
 
             Catch ex As Exception
-                ex = ex
+
             Finally
-                SetUiCursor(Cursors.Hand)
+                SetUiCursor(Cursors.Arrow)
             End Try
 
         End SyncLock
 
     End Sub
 
-    Friend Sub OnEmailRemovedFromEvent(ByVal folderIndex As Integer, ByVal entryID As String)
+    'Friend Sub OnEmailRemovedFromEvent(ByVal folderIndex As Integer, ByVal entryIDToBeRemoved As String)
 
-        Try
+    '    Try
 
-            If QueueEmailEvent(QueuedEmailEventType.Removed, folderIndex, entryID) Then Return
+    '        If String.IsNullOrEmpty(entryIDToBeRemoved) Then Return
 
-            If String.IsNullOrEmpty(entryID) Then Return
+    '        SetUiCursor(Cursors.Wait)
 
-            SetUiCursor(Cursors.Wait)
+    '        ' Add to suppress list to prevent event loop
+    '        SyncLock gSuppressEventLock
+    '            gSuppressEventForEntryIds.Add(entryIDToBeRemoved)
+    '        End SyncLock
 
-            ' Add to suppress list to prevent event loop
-            SyncLock gSuppressEventLock
-                gSuppressEventForEntryIds.Add(entryID)
-            End SyncLock
+    '        Dim indexToRemove As Integer = -1
 
-            Dim indexToRemove As Integer = -1
+    '        For i As Integer = 0 To gEmailTableIndex - 1
+    '            If String.IsNullOrEmpty(gEmailTable(i).sOutlookEntryID) Then
+    '                Continue For
+    '            End If
+    '            If gEmailTable(i).sOutlookEntryID = entryIDToBeRemoved Then
+    '                indexToRemove = i
+    '                Exit For
+    '            End If
+    '        Next
 
-            For i As Integer = 0 To EmailTableIndex - 1
-                If String.IsNullOrEmpty(EmailTable(i).sOutlookEntryID) Then
-                    Continue For
-                End If
-                If EmailTable(i).sOutlookEntryID = entryID Then
-                    indexToRemove = i
-                    Exit For
-                End If
-            Next
+    '        If indexToRemove >= 0 Then
+    '            For i As Integer = indexToRemove To gEmailTableIndex - 2
+    '                gEmailTable(i) = gEmailTable(i + 1)
+    '            Next
+    '            gEmailTableIndex -= 1
+    '            If gEmailTableIndex > 0 Then
+    '                ReDim Preserve gEmailTable(gEmailTableIndex)
+    '            Else
+    '                ReDim gEmailTable(0)
+    '            End If
+    '        End If
 
-            If indexToRemove >= 0 Then
-                For i As Integer = indexToRemove To EmailTableIndex - 2
-                    EmailTable(i) = EmailTable(i + 1)
-                Next
-                EmailTableIndex -= 1
-                If EmailTableIndex > 0 Then
-                    ReDim Preserve EmailTable(EmailTableIndex)
-                Else
-                    ReDim EmailTable(0)
-                End If
-            End If
+    '        If indexToRemove >= 0 Then
+    '            ScheduleRefreshGrid(SelectionRestoreReason.OutlookDelete)
+    '        End If
 
-            If indexToRemove >= 0 Then
-                ScheduleRefreshGrid(SelectionRestoreReason.OutlookDelete)
-            End If
+    '    Catch ex As Exception
 
+    '    Finally
+    '        SetUiCursor(Cursors.Arrow)
+    '    End Try
 
-        Finally
-            SetUiCursor(Cursors.Hand)
-        End Try
-
-    End Sub
+    'End Sub
 
 #Region "Event Loop Prevention"
 
@@ -5660,9 +5784,9 @@ EarlyExit:
     Friend Function BlockDuplicateEventProcessing(ByVal action As String, ByVal entryId As String) As Boolean
 
         ' The first time the routine is called for a given action + entryId it will return False
-        ' Subsequent calls for the same action + entryID will return True (thus allowing the caller to suspend processing for that combination of action + entryID) 
-        ' However, 1 second after having received no further calls for that action + entryID the routine will reset itself and 
-        ' no longer prevent that action entryId (thus allowing processing to continue for that action + entryID based on a separate event)
+        ' Subsequent calls for the same action + entryIDToBeRemoved will return True (thus allowing the caller to suspend processing for that combination of action + entryIDToBeRemoved) 
+        ' However, 1 second after having received no further calls for that action + entryIDToBeRemoved the routine will reset itself and 
+        ' no longer prevent that action entryId (thus allowing processing to continue for that action + entryIDToBeRemoved based on a separate event)
 
         Const shortTermSuspenstionPeriodMilliseconds As Integer = 1000
 
@@ -5714,17 +5838,15 @@ EarlyExit:
 
         Try
 
-            If QueueEmailEvent(QueuedEmailEventType.Changed, folderIndex, entryId, isUnread, attempt) Then Return
-
             SetUiCursor(Cursors.Wait)
 
             Dim indexToUpdate As Integer = -1
 
-            For i As Integer = 0 To EmailTableIndex - 1
-                If String.IsNullOrEmpty(EmailTable(i).sOutlookEntryID) Then
+            For i As Integer = 0 To gEmailTableIndex - 1
+                If String.IsNullOrEmpty(gEmailTable(i).sOutlookEntryID) Then
                     Continue For
                 End If
-                If EmailTable(i).sOutlookEntryID = entryId Then
+                If gEmailTable(i).sOutlookEntryID = entryId Then
                     indexToUpdate = i
                     Exit For
                 End If
@@ -5735,8 +5857,8 @@ EarlyExit:
                 Dim unchanged As Boolean = False
                 Try
 
-                    With EmailTable(indexToUpdate)
-                        If indexToUpdate < EmailTableIndex AndAlso .sOutlookEntryID = entryId Then
+                    With gEmailTable(indexToUpdate)
+                        If indexToUpdate < gEmailTableIndex AndAlso .sOutlookEntryID = entryId Then
                             Dim currentUnread As Boolean = (.sUnRead = System.Windows.FontWeights.Bold)
                             If currentUnread = isUnread Then
                                 unchanged = True
@@ -5753,8 +5875,9 @@ EarlyExit:
 
             End If
 
+        Catch ex As Exception
         Finally
-            SetUiCursor(Cursors.Hand)
+            SetUiCursor(Cursors.Arrow)
             If MailItem IsNot Nothing Then
                 Try
                     System.Runtime.InteropServices.Marshal.ReleaseComObject(MailItem)
@@ -5835,6 +5958,8 @@ EarlyExit:
                                               Catch
                                               End Try
 
+                                              _TotalMailBoxes = _outlookNamespace.Stores.Count()
+
                                               For Each store As Microsoft.Office.Interop.Outlook.Store In _outlookNamespace.Stores
                                                   Try
                                                       Dim storeId As String = ""
@@ -5858,14 +5983,18 @@ EarlyExit:
                                                       End If
 
                                                       Dim inbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
-                                                      Dim outbox As Microsoft.Office.Interop.Outlook.Folder = Nothing
+                                                      Dim sentMail As Microsoft.Office.Interop.Outlook.Folder = Nothing
+
                                                       Dim attached As Boolean = False
+
                                                       Try
                                                           inbox = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderInbox), Microsoft.Office.Interop.Outlook.Folder)
                                                       Catch
+
                                                       End Try
+
                                                       Try
-                                                          outbox = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderOutbox), Microsoft.Office.Interop.Outlook.Folder)
+                                                          sentMail = TryCast(store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderSentMail), Microsoft.Office.Interop.Outlook.Folder)
                                                       Catch
                                                       End Try
 
@@ -5892,17 +6021,24 @@ EarlyExit:
                                                       End Try
 
                                                       Try
-                                                          If outbox IsNot Nothing Then
-                                                              Dim items As Microsoft.Office.Interop.Outlook.Items = outbox.Items
+                                                          If sentMail IsNot Nothing Then
+                                                              Dim items As Microsoft.Office.Interop.Outlook.Items = sentMail.Items
                                                               Dim ev As Microsoft.Office.Interop.Outlook.ItemsEvents_Event = TryCast(items, Microsoft.Office.Interop.Outlook.ItemsEvents_Event)
                                                               If ev IsNot Nothing Then
+                                                                  AddHandler ev.ItemAdd, AddressOf OnItemAdd
+                                                                  AddHandler ev.ItemRemove, AddressOf OnItemRemove
+                                                                  AddHandler ev.ItemChange, AddressOf OnItemChange
+                                                                  _storeItems.Add(items)
+                                                                  _storeItemEvents.Add(ev)
+                                                                  attached = True
+                                                              Else
                                                                   System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
                                                               End If
                                                           End If
                                                       Finally
-                                                          If outbox IsNot Nothing Then
-                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(outbox)
-                                                              outbox = Nothing
+                                                          If sentMail IsNot Nothing Then
+                                                              System.Runtime.InteropServices.Marshal.ReleaseComObject(sentMail)
+                                                              sentMail = Nothing
                                                           End If
                                                       End Try
 
@@ -5932,6 +6068,9 @@ EarlyExit:
 
         Private ReadOnly EnsureUninteruptedProcessingOfOnItemAdd As New Object
         Private Sub OnItemAdd(ByVal Item As Object)
+
+
+            If gIsRefreshing Then Exit Sub
 
             SyncLock EnsureUninteruptedProcessingOfOnItemAdd
 
@@ -6029,6 +6168,7 @@ EarlyExit:
 
                     _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
                                                                       _mainWindow.OnEmailAddedFromEvent(folderIdx, entryId, subject, toAddr, fromAddr, receivedTime, isUnread, body)
+                                                                      _mainWindow.UpdateListView()
                                                                   End Sub))
 
                 Catch ex As Exception
@@ -6056,38 +6196,36 @@ EarlyExit:
 
         Private Sub OnItemRemove()
 
-            Try
-
-                ' OnItemRemove can be triggered in two scenarios:
-                ' 1. the email is deleted or removed from a monitored folder via FileFriendly
-                ' 2. the email is deletes or removed from a monitored folder via Outlook
-
-                ' However, in neither scenario do we know the EntryID of the deleted / removed email
-                ' I had originally tried to track the EntryIDs by taking a snapshot of them before and after the removal
-                ' However, this approach does not work in second case (removal in Outlook)
-
-                ' Accordingly, on removal the program simply refresh the grid to pick up any changes
-
-                _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-
-                                                                  If _mainWindow.BlockDuplicateEventProcessing("Remove", "unknown") Then
-                                                                      ' already processed so ignore
-                                                                  Else
-                                                                      _mainWindow.SetUiCursor(Cursors.Wait)
-                                                                      Thread.Sleep(500) ' give Outlook some time to settle
-                                                                      _mainWindow.RefreshGrid(False, True)
-                                                                      _mainWindow.SetUiCursor(Cursors.Hand)
-                                                                  End If
-
-                                                              End Sub),
-                                                              System.Windows.Threading.DispatcherPriority.Background)
+            If gIsRefreshing Then Exit Sub
 
 
+            ' OnItemRemove can be triggered in two scenarios:
+            ' 1. the email is deleted or removed from a monitored folder via FileFriendly
+            ' 2. the email is deletes or removed from a monitored folder via Outlook
 
+            ' However, in neither scenario do we know the EntryID of the deleted / removed email
+            ' I had originally tried to track the EntryIDs in the listview by taking a snapshot of them before and after the removal and then comparing the two snapshots to deduce which EntryID(s) had been removed
+            ' However, this approach does not work in second case (removal in Outlook) as the listview doesn't change just because an email is deleted in Outlook
 
-            Catch ex As Exception
+            ' Accordingly, on removal the program will simply refresh the grid view to pick up any changes
 
-            End Try
+            If _mainWindow.BlockDuplicateEventProcessing("Remove", "unknown") Then
+                ' already processed so ignore
+            Else
+                _mainWindow.SetUiCursor(Cursors.Wait)
+
+                ' give Outlook some time to potentially process multiple deletions
+                ' wait until no outlook events are no longer being suppressed 
+                While _mainWindow.gSuppressEventForEntryIds.Count > 0
+                    Thread.Sleep(500)
+                End While
+
+                _mainWindow.ScheduleRefreshGrid()
+
+                _mainWindow.SetUiCursor(Cursors.Arrow)
+
+            End If
+
         End Sub
 
         Private Sub OnItemChange(ByVal Item As Object)
@@ -6095,6 +6233,8 @@ EarlyExit:
             ' OnItemChange being called when an email is marked read/unread in Outlook
             ' This event can be triggered by many different changes to an email item (for example changing its priority)
             ' we are only interested in processing read/unread changes here
+
+            If gIsRefreshing Then Exit Sub
 
             Dim mailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing
 
@@ -6105,6 +6245,7 @@ EarlyExit:
                 If mailItem.EntryID Is Nothing Then Return
 
                 Dim entryId As String = mailItem.EntryID
+
                 Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
 
                 If _mainWindow.BlockDuplicateEventProcessing(action, entryId) Then Return
@@ -6143,7 +6284,7 @@ EarlyExit:
 
                 _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
                                                                   _mainWindow.OnEmailChangedFromEvent(folderIdx, eId, isUnread, 0, mailItem)
-                                                                  _mainWindow.RefreshGrid(False, True)
+                                                                  _mainWindow.UpdateListView()
                                                               End Sub))
             Catch ex As Exception
 
