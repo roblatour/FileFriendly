@@ -26,6 +26,7 @@
             OriginalRectangle2Margin = SeperatorLine.Margin
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -437,6 +438,7 @@
             End If
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -631,6 +633,7 @@
             End If
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -926,6 +929,7 @@
             ResetLookOfWindow()
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         Finally
             _isLoadingTreeView = False

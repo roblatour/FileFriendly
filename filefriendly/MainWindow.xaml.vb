@@ -235,6 +235,7 @@ Class MainWindow
                     Throw New Exception("Outlook version is empty")
                 End If
             Catch
+                If My.Settings.SoundAlert Then Beep()
                 MsgBox("FileFriendly has encountered a problem and cannot continue." & vbCrLf & vbCrLf &
                        "It appears that Microsoft Outlook is not installed or accessible on this computer." & vbCrLf & vbCrLf &
                        "FileFriendly requires Outlook to be able to run.",
@@ -396,6 +397,7 @@ Class MainWindow
             Thread.Sleep(500)
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString, MsgBoxStyle.OkOnly, "FileFriendly - Loading Error")
         End Try
 
@@ -578,6 +580,7 @@ Class MainWindow
             End If
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -1090,7 +1093,7 @@ Class MainWindow
             RecalculateListViewColumnWidths()
 
         Catch ex As Exception
-
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
 
         End Try
@@ -1307,6 +1310,7 @@ Class MainWindow
             t.Start()
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -1452,6 +1456,7 @@ CleanExit:
 
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         Finally
             SetMousePointer(Cursors.Arrow)
@@ -1509,9 +1514,11 @@ CleanExit:
 
             ReDim Preserve gFolderTable(gFolderTableIndex)
             ReDim gFolderNamesTable(gFolderTableIndex)
+            ReDim gFolderNamesTableTrimmed(gFolderTableIndex)
 
             For x As Integer = 0 To gFolderTable.Length - 1
                 gFolderNamesTable(x) = gFolderTable(x).FolderPath
+                gFolderNamesTableTrimmed(x) = gFolderNamesTable(x).TrimStart("\")
             Next
 
             ' Detect special folders across all mailboxes
@@ -1644,6 +1651,7 @@ CleanExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
 
         End Try
@@ -1817,6 +1825,7 @@ CleanExit:
     Private Sub ProcessAllFolders(ByVal MSOutlookDrivenEvent As Boolean, ByVal QuickRefresh As Boolean)
 
         Static LastFullyLoadedFolderTable() As FolderInfo
+        Static LastFolderNamesTableTrimmed(0) As String
 
         Static LastEmailTable() As StructureOfEmailDetails
         Static LastEmailTableIndex As Integer = 0
@@ -1893,6 +1902,9 @@ CleanExit:
             ReDim LastFullyLoadedFolderTable(gFolderTable.Length - 1)
             Array.Copy(gFolderTable, LastFullyLoadedFolderTable, gFolderTable.Length)
 
+            ReDim LastFolderNamesTableTrimmed(gFolderNamesTableTrimmed.Length - 1)
+            Array.Copy(gFolderNamesTableTrimmed, LastFolderNamesTableTrimmed, gFolderNamesTableTrimmed.Length)
+
             ReDim LastEmailTable(gEmailTableIndex - 1)
             Array.Copy(gEmailTable, LastEmailTable, gEmailTableIndex)
             LastEmailTableIndex = gEmailTableIndex
@@ -1906,6 +1918,10 @@ CleanExit:
 
             If (LastFullyLoadedFolderTable IsNot Nothing) Then
                 Array.Copy(LastFullyLoadedFolderTable, gFolderTable, LastFullyLoadedFolderTable.Length)
+            End If
+
+            If LastFolderNamesTableTrimmed IsNot Nothing Then
+                Array.Copy(LastFolderNamesTableTrimmed, gFolderNamesTableTrimmed, LastFolderNamesTableTrimmed.Length)
             End If
 
             If LastEmailTable IsNot Nothing Then
@@ -2284,6 +2300,7 @@ EarlyExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
 
         End Try
@@ -2317,6 +2334,7 @@ EarlyExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
 
         End Try
@@ -2389,6 +2407,8 @@ EarlyExit:
             UniqueSubjectsMap.Clear()
 
         Catch ex As Exception
+
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -2604,6 +2624,7 @@ EarlyExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
 
         End Try
@@ -3551,6 +3572,8 @@ EarlyExit:
                 UpdateDetails()
 
                 If errorOccurred Then
+
+                    If My.Settings.SoundAlert Then Beep()
                     MsgBox("FileFriendly could not update the read/unread state for all selected items." & vbCrLf & vbCrLf &
                            "Some items may have been successfully toggled, but not all.",
                            MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
@@ -3563,6 +3586,7 @@ EarlyExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.Message,
                    MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
                    "FileFriendly - Toggle Read/Unread Failed")
@@ -3776,6 +3800,7 @@ EarlyExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
 
         End Try
@@ -3935,6 +3960,7 @@ EarlyExit:
                         ' Loop will retry with fresh session
                         mailItem = Nothing
                     Else
+                        If My.Settings.SoundAlert Then Beep()
                         MsgBox("FileFriendly could not open the selected e-mail in Outlook." & vbCrLf & vbCrLf &
                                "Details: " & comEx.Message,
                                MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
@@ -3943,6 +3969,7 @@ EarlyExit:
                     End If
 
                 Catch ex As Exception
+                    If My.Settings.SoundAlert Then Beep()
                     MsgBox("FileFriendly could not open the selected e-mail in Outlook." & vbCrLf & vbCrLf &
                            "Details: " & ex.Message,
                            MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
@@ -3971,6 +3998,7 @@ EarlyExit:
             End If
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.Message & vbCrLf & vbCrLf &
                    "If Outlook is not running please start it and try again.",
                    MsgBoxStyle.Exclamation,
@@ -4209,6 +4237,7 @@ EarlyExit:
                         mail = Nothing
                         targetFolder = Nothing
                     Else
+                        If My.Settings.SoundAlert Then Beep()
                         MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
                                "Details: " & comEx.Message,
                                MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
@@ -4217,6 +4246,7 @@ EarlyExit:
                     End If
 
                 Catch ex As Exception
+                    If My.Settings.SoundAlert Then Beep()
                     MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
                            "Details: " & ex.Message,
                            MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
@@ -4252,6 +4282,7 @@ EarlyExit:
             oMovedEmail = Nothing
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.Message,
                MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
                "FileFriendly - Outlook Error")
@@ -4655,6 +4686,7 @@ EarlyExit:
 
         Catch ex As Exception
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
 
         End Try
@@ -5517,7 +5549,7 @@ EarlyExit:
             ApplyFilter()
 
         Catch ex As Exception
-
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 

@@ -44,6 +44,7 @@
             Me.Tree.Focus()
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
@@ -134,6 +135,7 @@
             ApplyRecommendedSelection(root, excluded, excludedSubtrees, False)
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 

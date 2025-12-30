@@ -34,6 +34,7 @@
             WireUpHyperlinks(rtbLicense)
 
         Catch ex As Exception
+            If My.Settings.SoundAlert Then Beep()
             MsgBox(ex.ToString)
         End Try
 
