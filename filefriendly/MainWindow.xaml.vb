@@ -1,5 +1,6 @@
 ﻿Imports System.Linq
 Imports System.Threading
+Imports System.Threading.Tasks
 Imports System.Windows.Threading
 Imports Microsoft.Office.Interop
 
@@ -157,6 +158,7 @@ Class MainWindow
     Private gPendingSelectionSnapshot As SelectionSnapshot
     Private gPendingSelectionReason As SelectionRestoreReason = SelectionRestoreReason.Refresh
     Private gPendingSelectionFallbackToFirst As Boolean = True
+    Private gPendingSelectionApplied As Boolean = False
 
     Private lProgressBareRefreshingThresholdCounter As Double = 0
 
@@ -677,18 +679,12 @@ Class MainWindow
 #Region "List View Stuff"
 
     ' Thread‑safe wrapper to update the cursor from any thread
-    Private Sub SetUiCursor(ByVal cursor As System.Windows.Input.Cursor)
+    Private Sub SetMousePointer(ByVal cursor As System.Windows.Input.Cursor)
         If Dispatcher.CheckAccess() Then
             Me.Cursor = cursor
         Else
-            Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor),
-                                   New Object() {cursor})
+            Dispatcher.BeginInvoke(Sub() Me.Cursor = cursor)
         End If
-    End Sub
-
-    Delegate Sub SetCursorCallback(ByVal [CursorType] As System.Windows.Input.Cursor)
-    Private Sub SetCursor(ByVal [CursorType] As System.Windows.Input.Cursor)
-        Me.Cursor = [CursorType]
     End Sub
 
     Delegate Sub ShowFoldersCallback()
@@ -1264,8 +1260,6 @@ Class MainWindow
 
     End Sub
 
-    Delegate Sub RestoreSelectionCallback()
-
     Private Sub ClearGrid()
 
         Me.ListView1.Visibility = Windows.Visibility.Hidden
@@ -1284,7 +1278,6 @@ Class MainWindow
         lblMainMessageLine.Content = "0 e-mails (0 selected)"
 
         BlankOutDetails()
-        'MenuOptionEnabled("View", False)
 
     End Sub
 
@@ -1335,11 +1328,9 @@ Class MainWindow
 
         Try
 
-            SetUiCursor(Cursors.Wait)
+            SetMousePointer(Cursors.Wait)
 
             MemoryManagement.FlushMemory()
-
-            Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Wait})
 
             If MSOutlookDrivenEvent Then
 
@@ -1427,7 +1418,7 @@ Class MainWindow
 
                 Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {"Done"})
 
-                Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Arrow})
+                SetMousePointer(Cursors.Arrow)
 
                 SetProcessPriorities("End Review")
 
@@ -1444,7 +1435,7 @@ Class MainWindow
 
                 Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {"Done"})
 
-                Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Arrow})
+                SetMousePointer(Cursors.Arrow)
 
                 SetProcessPriorities("End Review")
 
@@ -1462,7 +1453,7 @@ CleanExit:
         Catch ex As Exception
             MsgBox(ex.ToString)
         Finally
-            SetUiCursor(Cursors.Arrow)
+            SetMousePointer(Cursors.Arrow)
         End Try
 
         MemoryManagement.FlushMemory()
@@ -1870,48 +1861,7 @@ CleanExit:
         'Step 2 add all info except trailers 
         '***************************************************************************
 
-        'Dim ScanThisFolder As Boolean
-
-        'For x As Int16 = 0 To gFolderTableIndex
-
-        '    If gCancelRefresh Then Exit For
-
-        '    ScanThisFolder = False
-
-
-        '    If gRefreshInbox AndAlso gInboxFolderIndices.Contains(x) AndAlso (gInboxFolderIndices.Count > 0) Then
-
-        '        ScanThisFolder = True
-
-        '    ElseIf gRefreshSent AndAlso gSentFolderIndices.Contains(x) AndAlso (gSentFolderIndices.Count > 0) Then
-
-        '        ScanThisFolder = True
-
-        '    ElseIf gRefreshAll AndAlso (Not MSOutlookDrivenEvent) Then
-
-        '        ScanThisFolder = (strCollection.IndexOf(gFolderNamesTable(x)) = -1) OrElse Collection_of_folders_to_exclude_is_empty
-
-        '    End If
-
-        '    If ScanThisFolder Then
-
-        '        If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
-        '            Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
-        '            Try
-        '                ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
-        '            Finally
-        '                If folder IsNot Nothing Then
-        '                    System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
-        '                    folder = Nothing
-        '                End If
-        '            End Try
-        '        End If
-
-        '    End If
-
-        'Next
-
-        ' add all other folders last
+        ' add all other folders first
 
         If gRefreshAll AndAlso (Not MSOutlookDrivenEvent) Then
 
@@ -1947,7 +1897,7 @@ CleanExit:
 
         End If
 
-        ' add sent items next
+        ' add sent items  
         If gRefreshSent Then
 
             For x As Int16 = 0 To gFolderTableIndex
@@ -2462,8 +2412,11 @@ EarlyExit:
 
     Private Sub UpdateListView()
 
-        Dim operation1 = Me.Dispatcher.BeginInvoke(Sub() StorePendingSelection(SelectionRestoreReason.Refresh))
-        operation1.Wait()
+        Try
+            Dim operation1 = Me.Dispatcher.BeginInvoke(Sub() StorePendingSelection(SelectionRestoreReason.Refresh))
+            operation1.Wait()
+        Catch
+        End Try
 
         Try
 
@@ -2713,8 +2666,12 @@ EarlyExit:
         End Try
 
         Try
-            Me.Dispatcher.BeginInvoke(New RestoreSelectionCallback(AddressOf RestorePendingSelection), New Object() {})
-        Catch ex As Exception
+            ' Defer restore during a full refresh; ApplyFilter will restore once the final list is built, avoiding double invocation.
+            If Not gIsRefreshing Then
+                Dim operation1 = Me.Dispatcher.BeginInvoke(New RestoreSelectionCallback(AddressOf RestorePendingSelection), New Object() {})
+                operation1.Wait()
+            End If
+        Catch
         End Try
 
     End Sub
@@ -2790,6 +2747,7 @@ EarlyExit:
 
     Private Sub ListView1_SelectionChanged(ByVal sender As Object, ByVal e As System.Windows.Controls.SelectionChangedEventArgs) Handles ListView1.SelectionChanged
 
+
         If gSuppressUpdatesToDetailBox Then Exit Sub
 
         'Select all emails in chain if click happened on a chain indicator
@@ -2824,7 +2782,6 @@ EarlyExit:
         Return (If(row.Subject, "") & If(row.Trailer, ""))
 
     End Function
-
     Private Function CaptureSelectionSnapshot() As SelectionSnapshot
 
         Dim snap As New SelectionSnapshot With {
@@ -2865,26 +2822,42 @@ EarlyExit:
         gPendingSelectionSnapshot = CaptureSelectionSnapshot()
         gPendingSelectionReason = reason
         gPendingSelectionFallbackToFirst = (gPendingSelectionSnapshot Is Nothing OrElse Not gPendingSelectionSnapshot.HasSelection)
+        gPendingSelectionApplied = False
 
     End Sub
 
+    Delegate Sub RestoreSelectionCallback()
+    Private Sub RestorePendingSelection()
+
+        ' Prevent redundant re-entry only when a prior restore already produced a selection; allow a second pass if nothing was selected yet.
+        If gPendingSelectionApplied AndAlso ListView1 IsNot Nothing AndAlso ListView1.SelectedItems.Count > 0 Then Return
+
+        RestoreSelection(gPendingSelectionSnapshot, gPendingSelectionReason, gPendingSelectionFallbackToFirst)
+        gPendingSelectionSnapshot = Nothing
+
+    End Sub
     Private Sub RestoreSelection(ByVal snapshot As SelectionSnapshot, ByVal reason As SelectionRestoreReason, ByVal fallbackToFirst As Boolean)
+        'Restore selection state after listview updates, honoring deletion/sort reasons and chaining rules.
 
         If ListView1 Is Nothing Then Return
 
+        'Temporarily detach selection handler to avoid reentrancy while rebuilding selection.
         RemoveHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
 
         Try
 
+            'Reset selection and bail out quickly if the list is empty.
             ListView1.SelectedItems.Clear()
 
             If ListView1.Items.Count = 0 Then
                 gCurrentlySelectedListViewItemIndex = 0
+                gPendingSelectionApplied = True
                 BlankOutDetails()
                 UpdateMainMessageLine()
                 Return
             End If
 
+            'When items were removed, pick the closest surviving entry and reselect chain members if enabled.
             If reason = SelectionRestoreReason.UserDelete OrElse reason = SelectionRestoreReason.OutlookDelete Then
 
                 Dim targetIndex As Integer = -1
@@ -2927,6 +2900,7 @@ EarlyExit:
                 End If
 
                 If ListView1.SelectedIndex >= 0 Then
+                    gPendingSelectionApplied = True
                     ListView1.UpdateLayout()
                     Dim selectedItem = ListView1.SelectedItem
                     ListView1.ScrollIntoView(selectedItem)
@@ -2945,6 +2919,7 @@ EarlyExit:
 
             End If
 
+            'If nothing to restore, optionally default to the first item and chain mates.
             If snapshot Is Nothing OrElse Not snapshot.HasSelection Then
 
                 If fallbackToFirst Then
@@ -2975,11 +2950,16 @@ EarlyExit:
                     End If
                 End If
 
+                If ListView1.SelectedIndex >= 0 Then
+                    gPendingSelectionApplied = True
+                End If
+
                 UpdateDetails()
                 Return
 
             End If
 
+            'Map original snapshot indices and Outlook IDs to current list indices for matching.
             Dim sourceIndexToListViewIndex As New Dictionary(Of Integer, Integer)
             Dim idToIndex As New Dictionary(Of String, Integer)(StringComparer.OrdinalIgnoreCase)
 
@@ -2996,13 +2976,19 @@ EarlyExit:
                 End If
             Next
 
+            'Track chain keys from the snapshot to reapply chain selections when appropriate.
             Dim selectedChainKeys As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+            Dim selectedIds As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
             For Each entry In snapshot.Entries
                 If Not String.IsNullOrEmpty(entry.ChainKey) Then
                     selectedChainKeys.Add(entry.ChainKey)
                 End If
+                If Not String.IsNullOrEmpty(entry.OutlookEntryId) Then
+                    selectedIds.Add(entry.OutlookEntryId)
+                End If
             Next
 
+            'Resolve which current rows should be selected and where the anchor should be.
             Dim targetIndices As New HashSet(Of Integer)
             Dim anchorIndex As Integer = -1
             Dim maxSnapshotIndex As Integer = -1
@@ -3011,13 +2997,27 @@ EarlyExit:
                 If entry.Index > maxSnapshotIndex Then maxSnapshotIndex = entry.Index
                 Dim idx As Integer
 
-                If sourceIndexToListViewIndex.TryGetValue(entry.Index, idx) Then
+                ' Prefer matching by Outlook ID; only fall back to index when no ID is available for the entry.
+                If Not String.IsNullOrEmpty(entry.OutlookEntryId) AndAlso idToIndex.TryGetValue(entry.OutlookEntryId, idx) Then
                     targetIndices.Add(idx)
-                ElseIf Not String.IsNullOrEmpty(entry.OutlookEntryId) AndAlso idToIndex.TryGetValue(entry.OutlookEntryId, idx) Then
+                ElseIf String.IsNullOrEmpty(entry.OutlookEntryId) AndAlso sourceIndexToListViewIndex.TryGetValue(entry.Index, idx) Then
                     targetIndices.Add(idx)
                 End If
             Next
 
+            'Ensure all surviving rows with matching Outlook IDs from the snapshot are reselected, even if indices shifted.
+            If selectedIds.Count > 0 Then
+                For i As Integer = 0 To ListView1.Items.Count - 1
+                    Dim row = TryCast(ListView1.Items(i), ListViewRowClass)
+                    If row Is Nothing Then Continue For
+                    If Not String.IsNullOrEmpty(row.OutlookEntryID) AndAlso selectedIds.Contains(row.OutlookEntryID) Then
+                        targetIndices.Add(i)
+                    End If
+                Next
+            End If
+
+
+            'Expand selection to other rows in the same chain when appropriate and chaining is enabled.
             If (reason <> SelectionRestoreReason.UserDelete AndAlso reason <> SelectionRestoreReason.OutlookDelete AndAlso reason <> SelectionRestoreReason.Refresh) AndAlso gAutoChainSelect AndAlso selectedChainKeys.Count > 0 Then
                 For i As Integer = 0 To ListView1.Items.Count - 1
                     Dim row = TryCast(ListView1.Items(i), ListViewRowClass)
@@ -3029,6 +3029,7 @@ EarlyExit:
                 Next
             End If
 
+            'During sort restores, keep only contiguous chain selections to mirror visual grouping.
             If reason = SelectionRestoreReason.Sort AndAlso selectedChainKeys.Count > 0 AndAlso targetIndices.Count > 1 Then
                 For Each key In selectedChainKeys
                     Dim indices As New List(Of Integer)
@@ -3060,6 +3061,7 @@ EarlyExit:
                 Next
             End If
 
+            'If no exact matches remain, derive a reasonable fallback index and reapply chaining if available.
             If targetIndices.Count = 0 AndAlso snapshot.HasSelection Then
                 Dim fallbackIndex As Integer
                 If reason = SelectionRestoreReason.UserDelete OrElse reason = SelectionRestoreReason.OutlookDelete Then
@@ -3089,64 +3091,64 @@ EarlyExit:
                 End If
             End If
 
+            ' When refreshing, if every previously selected row disappeared, default to the first remaining row.
+            If targetIndices.Count = 0 AndAlso reason = SelectionRestoreReason.Refresh AndAlso snapshot IsNot Nothing AndAlso snapshot.HasSelection AndAlso ListView1.Items.Count > 0 Then
+                fallbackToFirst = True
+            End If
+
+            'As a last resort, optionally select the first item.
             If targetIndices.Count = 0 AndAlso fallbackToFirst Then
                 If ListView1.Items.Count > 0 Then
                     targetIndices.Add(0)
                 End If
             End If
 
+            'Apply the resolved selection, ensuring a stable anchor index.
             If targetIndices.Count > 0 Then
                 Dim ordered As New List(Of Integer)(targetIndices)
                 ordered.Sort()
-                For Each idx In ordered
-                    ListView1.SelectedItems.Add(ListView1.Items(idx))
-                Next
-                If anchorIndex < 0 AndAlso ordered.Count > 0 Then anchorIndex = ordered(0)
-                If anchorIndex >= 0 AndAlso anchorIndex < ListView1.Items.Count Then
-                    gCurrentlySelectedListViewItemIndex = anchorIndex
-                    ListView1.SelectedIndex = anchorIndex
-                Else
-                    gCurrentlySelectedListViewItemIndex = ordered(0)
-                    ListView1.SelectedIndex = ordered(0)
+
+                ' Guard against stale indices from the snapshot; skip anything outside the current bounds before applying.
+                ordered = ordered.Where(Function(i) i >= 0 AndAlso i < ListView1.Items.Count).ToList()
+
+                If ordered.Count > 0 Then
+                    For Each idx In ordered
+                        ListView1.SelectedItems.Add(ListView1.Items(idx))
+                    Next
+                    If anchorIndex < 0 AndAlso ordered.Count > 0 Then anchorIndex = ordered(0)
+                    If anchorIndex >= 0 AndAlso anchorIndex < ListView1.Items.Count Then
+                        gCurrentlySelectedListViewItemIndex = anchorIndex
+                    Else
+                        gCurrentlySelectedListViewItemIndex = ordered(0)
+                    End If
                 End If
-            Else
+            End If
+
+            If ListView1.SelectedItems.Count = 0 AndAlso fallbackToFirst AndAlso ListView1.Items.Count > 0 Then
+                ListView1.SelectedItems.Add(ListView1.Items(0))
                 gCurrentlySelectedListViewItemIndex = 0
-                ListView1.SelectedIndex = -1
             End If
 
-            If ListView1.SelectedIndex >= 0 Then
+            If ListView1.SelectedItems.Count > 0 Then
+                gPendingSelectionApplied = True
+            End If
+
+            'Ensure selection is scrolled into view and focus is placed on the selected container.
+            If ListView1.SelectedItems.Count > 0 Then
                 ListView1.UpdateLayout()
-                Dim selectedItem = ListView1.SelectedItem
-                ListView1.ScrollIntoView(selectedItem)
-                Dispatcher.BeginInvoke(Sub()
-                                           Try
-                                               Dim selectedContainer = TryCast(ListView1.ItemContainerGenerator.ContainerFromIndex(ListView1.SelectedIndex), System.Windows.Controls.ListViewItem)
-                                               If selectedContainer Is Nothing Then
-                                                   ListView1.Focus()
-                                               Else
-                                                   selectedContainer.Focus()
-                                               End If
-                                           Catch
-                                               ListView1.Focus()
-                                           End Try
-
-                                       End Sub, System.Windows.Threading.DispatcherPriority.Background)
+                ListView1.ScrollIntoView(ListView1.SelectedItems(0))
             End If
 
+            'Refresh detail view to reflect the restored selection.
             UpdateDetails()
 
         Finally
 
+            'Reattach selection handler now that restore is complete.
             AddHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
 
         End Try
 
-    End Sub
-
-    Private Sub RestorePendingSelection()
-
-        RestoreSelection(gPendingSelectionSnapshot, gPendingSelectionReason, gPendingSelectionFallbackToFirst)
-        gPendingSelectionSnapshot = Nothing
 
     End Sub
 
@@ -3427,7 +3429,7 @@ EarlyExit:
         Try
 
             ' Show wait cursor while we do COM work
-            SetUiCursor(Cursors.Wait)
+            SetMousePointer(Cursors.Wait)
 
             If ListView1.SelectedItems.Count = 0 Then
                 Exit Try
@@ -3626,7 +3628,7 @@ EarlyExit:
 
         ' Always restore cursor
         AddHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
-        SetUiCursor(Cursors.Arrow)
+        SetMousePointer(Cursors.Arrow)
 
     End Sub
 
@@ -3959,7 +3961,7 @@ EarlyExit:
     Private Sub OpenAnEmail()
 
         ' Show wait cursor while we do COM work
-        SetUiCursor(Cursors.Wait)
+        SetMousePointer(Cursors.Wait)
 
         Try
 
@@ -4041,7 +4043,7 @@ EarlyExit:
                    MsgBoxStyle.Exclamation,
                    "FileFriendly - Open Fail")
         Finally
-            SetUiCursor(Cursors.Arrow)
+            SetMousePointer(Cursors.Arrow)
         End Try
 
     End Sub
@@ -4239,7 +4241,7 @@ EarlyExit:
         Dim ReturnCode As String = ""
 
         ' Show wait cursor during Outlook COM work
-        SetUiCursor(Cursors.Wait)
+        SetMousePointer(Cursors.Wait)
 
         Try
             If Not EnsureOutlookIsRunning() Then
@@ -4320,7 +4322,7 @@ EarlyExit:
                "FileFriendly - Outlook Error")
             ReturnCode = ""
         Finally
-            SetUiCursor(Cursors.Arrow)
+            SetMousePointer(Cursors.Arrow)
         End Try
 
         Return ReturnCode
@@ -4866,7 +4868,7 @@ EarlyExit:
         Catch
         End Try
 
-        SetUiCursor(Cursors.Wait)
+        SetMousePointer(Cursors.Wait)
 
         Try
             Dim repairOnly As Boolean = False
@@ -5039,9 +5041,9 @@ EarlyExit:
 
         Finally
             If originalCursor IsNot Nothing Then
-                SetUiCursor(originalCursor)
+                SetMousePointer(originalCursor)
             Else
-                SetUiCursor(Cursors.Arrow)
+                SetMousePointer(Cursors.Arrow)
             End If
         End Try
 
@@ -5516,7 +5518,7 @@ EarlyExit:
 
     Private Sub ListViewColumnHeaderClickedHandler(ByVal sender As Object, ByVal e As RoutedEventArgs)
 
-        Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Wait})
+        SetMousePointer(Cursors.Wait)
 
         Try
 
@@ -5584,7 +5586,7 @@ EarlyExit:
             MsgBox(ex.ToString)
         End Try
 
-        Me.Dispatcher.BeginInvoke(New SetCursorCallback(AddressOf SetCursor), New Object() {Cursors.Arrow})
+        SetMousePointer(Cursors.Arrow)
 
     End Sub
 
@@ -5695,7 +5697,7 @@ EarlyExit:
 
                 If String.IsNullOrEmpty(entryId) OrElse folderIndex < 0 OrElse folderIndex >= gFolderTable.Length Then Return
 
-                SetUiCursor(Cursors.Wait)
+                SetMousePointer(Cursors.Wait)
 
                 Dim emailDetail = New StructureOfEmailDetails() With {
                     .sOriginalFolderReferenceNumber = CShort(folderIndex),
@@ -5726,10 +5728,10 @@ EarlyExit:
 
                 UpdateListView()
 
-            Catch ex As Exception
+            Catch
 
             Finally
-                SetUiCursor(Cursors.Arrow)
+                SetMousePointer(Cursors.Arrow)
             End Try
 
         End SyncLock
@@ -5742,7 +5744,7 @@ EarlyExit:
 
     '        If String.IsNullOrEmpty(entryIDToBeRemoved) Then Return
 
-    '        SetUiCursor(Cursors.Wait)
+    '        SetMousePointer(Cursors.Wait)
 
     '        ' Add to suppress list to prevent event loop
     '        SyncLock gSuppressEventLock
@@ -5780,7 +5782,7 @@ EarlyExit:
     '    Catch ex As Exception
 
     '    Finally
-    '        SetUiCursor(Cursors.Arrow)
+    '        SetMousePointer(Cursors.Arrow)
     '    End Try
 
     'End Sub
@@ -5844,57 +5846,60 @@ EarlyExit:
     End Function
 
 #End Region
+
+    Private EnsureUninteruptedProcessingOfOnEmailChangedFromEvent As New Object
     Friend Sub OnEmailChangedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal isUnread As Boolean, Optional ByVal attempt As Integer = 0, Optional ByVal MailItem As Microsoft.Office.Interop.Outlook.MailItem = Nothing)
 
-        Try
+        SyncLock EnsureUninteruptedProcessingOfOnEmailChangedFromEvent
+            Try
 
-            SetUiCursor(Cursors.Wait)
+                SetMousePointer(Cursors.Wait)
 
-            Dim indexToUpdate As Integer = -1
+                Dim indexToUpdate As Integer = -1
 
-            For i As Integer = 0 To gEmailTableIndex - 1
-                If String.IsNullOrEmpty(gEmailTable(i).sOutlookEntryID) Then
-                    Continue For
-                End If
-                If gEmailTable(i).sOutlookEntryID = entryId Then
-                    indexToUpdate = i
-                    Exit For
-                End If
-            Next
+                For i As Integer = 0 To gEmailTableIndex - 1
+                    If String.IsNullOrEmpty(gEmailTable(i).sOutlookEntryID) Then
+                        Continue For
+                    End If
+                    If gEmailTable(i).sOutlookEntryID = entryId Then
+                        indexToUpdate = i
+                        Exit For
+                    End If
+                Next
 
-            If indexToUpdate >= 0 Then
+                If indexToUpdate >= 0 Then
 
-                Dim unchanged As Boolean = False
-                Try
+                    Try
 
-                    With gEmailTable(indexToUpdate)
-                        If indexToUpdate < gEmailTableIndex AndAlso .sOutlookEntryID = entryId Then
-                            Dim currentUnread As Boolean = (.sUnRead = System.Windows.FontWeights.Bold)
-                            If currentUnread = isUnread Then
-                                unchanged = True
-                            Else
-                                ' in a change event the only thing that should be changing is the read/unread status
-                                .sUnRead = If(isUnread, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
+                        With gEmailTable(indexToUpdate)
+                            If indexToUpdate < gEmailTableIndex AndAlso .sOutlookEntryID = entryId Then
+                                Dim currentUnread As Boolean = (.sUnRead = System.Windows.FontWeights.Bold)
+                                If currentUnread <> isUnread Then
+                                    ' in a change event the only thing that should be changing is the read/unread status
+                                    .sUnRead = If(isUnread, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
+                                End If
                             End If
-                        End If
-                    End With
+                        End With
 
-                Catch
+                    Catch
 
-                End Try
+                    End Try
 
-            End If
+                End If
 
-        Catch ex As Exception
-        Finally
-            SetUiCursor(Cursors.Arrow)
-            If MailItem IsNot Nothing Then
-                Try
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(MailItem)
-                Catch ex As Exception
-                End Try
-            End If
-        End Try
+            Catch
+            Finally
+                ' UpdateListView() not required here as the read/unread status change will be reflected via Outlook's own UI update mechanisms
+                If MailItem IsNot Nothing Then
+                    Try
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(MailItem)
+                    Catch ex As Exception
+                    End Try
+                End If
+                SetMousePointer(Cursors.Arrow)
+            End Try
+
+        End SyncLock
 
     End Sub
 
@@ -6177,7 +6182,6 @@ EarlyExit:
 
                     _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
                                                                       _mainWindow.OnEmailAddedFromEvent(folderIdx, entryId, subject, toAddr, fromAddr, receivedTime, isUnread, body)
-                                                                      _mainWindow.UpdateListView()
                                                                   End Sub))
 
                 Catch ex As Exception
@@ -6207,7 +6211,6 @@ EarlyExit:
 
             If gIsRefreshing Then Exit Sub
 
-
             ' OnItemRemove can be triggered in two scenarios:
             ' 1. the email is deleted or removed from a monitored folder via FileFriendly
             ' 2. the email is deletes or removed from a monitored folder via Outlook
@@ -6218,22 +6221,23 @@ EarlyExit:
 
             ' Accordingly, on removal the program will simply refresh the grid view to pick up any changes
 
-            If _mainWindow.BlockDuplicateEventProcessing("Remove", "unknown") Then
-                ' already processed so ignore
-            Else
-                _mainWindow.SetUiCursor(Cursors.Wait)
+            ' Block duplicate requests for the same event
+            If _mainWindow.BlockDuplicateEventProcessing("Remove", "unknown") Then Return
 
-                ' give Outlook some time to potentially process multiple deletions
-                ' wait until no outlook events are no longer being suppressed 
-                While _mainWindow.gSuppressEventForEntryIds.Count > 0
-                    Thread.Sleep(500)
-                End While
+            _mainWindow.SetMousePointer(Cursors.Wait)
 
-                _mainWindow.ScheduleRefreshGrid()
+            ' Block additional requests for other emails (if multiple emails are being actioned at the same time)
+            If _mainWindow.gSuppressEventForEntryIds.Count > 1 Then Return
 
-                _mainWindow.SetUiCursor(Cursors.Arrow)
+            ' Give Outlook some time to process any and all events by waiting until there are no more outlook events are being suppressed
+            While _mainWindow.gSuppressEventForEntryIds.Count > 0
+                Thread.Sleep(200)
+            End While
 
-            End If
+            _mainWindow.ScheduleRefreshGrid()
+
+            _mainWindow.SetMousePointer(Cursors.Arrow)
+
 
         End Sub
 
@@ -6253,51 +6257,29 @@ EarlyExit:
                 If mailItem Is Nothing Then Return
                 If mailItem.EntryID Is Nothing Then Return
 
+                ' Block duplicate requests for the same email
                 Dim entryId As String = mailItem.EntryID
-
                 Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
-
                 If _mainWindow.BlockDuplicateEventProcessing(action, entryId) Then Return
 
-                Dim isUnread As Boolean = False
+                _mainWindow.SetMousePointer(Cursors.Wait)
 
-                Try
-                    isUnread = mailItem.UnRead
-                Catch
-                End Try
+                ' Block additional requests for other emails (if multiple emails are being actioned at the same time)
+                If _mainWindow.gSuppressEventForEntryIds.Count > 1 Then Return
 
-                Dim folderIdx As Integer = -1
-                Try
-                    Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = TryCast(mailItem.Parent, Microsoft.Office.Interop.Outlook.MAPIFolder)
-                    If folder IsNot Nothing Then
-                        folderIdx = 0
-                        Dim matched As Boolean = False
-                        For Each entry In gFolderTable
-                            If String.Equals(entry.FolderPath, folder.FolderPath, StringComparison.OrdinalIgnoreCase) Then
-                                matched = True
-                                Exit For
-                            End If
-                            folderIdx += 1
-                        Next
-                        If Not matched Then
-                            folderIdx = -1
-                        End If
-                    End If
-                Catch
-                    folderIdx = -1
-                End Try
+                ' Give Outlook some time to process any and all events by waiting until there are no more outlook events are being suppressed
+                While _mainWindow.gSuppressEventForEntryIds.Count > 0
+                    Thread.Sleep(200)
+                End While
 
-                If folderIdx < 0 Then Return
+                _mainWindow.ScheduleRefreshGrid()
 
-                Dim eId As String = entryId
+                _mainWindow.SetMousePointer(Cursors.Arrow)
 
-                _mainWindow.Dispatcher.BeginInvoke(New Action(Sub()
-                                                                  _mainWindow.OnEmailChangedFromEvent(folderIdx, eId, isUnread, 0, mailItem)
-                                                                  _mainWindow.UpdateListView()
-                                                              End Sub))
             Catch ex As Exception
 
             End Try
+
         End Sub
 
         Public Sub Dispose() Implements IDisposable.Dispose
