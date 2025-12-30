@@ -28,6 +28,6 @@
                 </Grid>
             </TabItem>
         </TabControl>
-        <Image Cursor="Hand" Height="14" HorizontalAlignment="Right" Margin="0,3,5,0" Name="imgClose" Source="/filefriendly;component/Resources/close.gif" Stretch="Fill" ToolTip="Close" VerticalAlignment="Top" Width="14" />
+        <Image Cursor="Arrow" Height="14" HorizontalAlignment="Right" Margin="0,3,5,0" Name="imgClose" Source="/filefriendly;component/Resources/close.gif" Stretch="Fill" ToolTip="Close" VerticalAlignment="Top" Width="14" />
     </Grid>
 </Window>

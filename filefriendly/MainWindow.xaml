@@ -59,28 +59,28 @@
                       Tag="MenuActions"
                       Foreground="{StaticResource DefaultSystemBrush}"
                       Background="{StaticResource DefaultMenueBackgroundBrush}"
-                      Cursor="Hand">
+                      Cursor="Arrow">
                 <MenuItem Header="_Open"
                           Name="MenuOpen"
                           Tag="Open"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <MenuItem Header="_Hide"
                           Name="MenuHide"
                           Tag="Hide"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <MenuItem Header="_Delete"
                           Name="MenuDelete"
                           Tag="Delete"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <Separator/>
                 <MenuItem Header="_Undo"
                           Name="MenuUndo"
@@ -88,22 +88,30 @@
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <Separator/>
+                <MenuItem Header="_Quick Refresh [F5]"
+                          Name="MenuQuickRefresh"
+                          Tag="Quick Refresh [F5]"
+                          Foreground="{StaticResource DefaultSystemBrush}"
+                          Background="{StaticResource DefaultMenueBackgroundBrush}"
+                          IsCheckable="False"
+                          Cursor="Arrow"/>             
                 <MenuItem Header="_Refresh"
                           Name="MenuRefresh"
                           Tag="Refresh"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
+                <Separator/>
                 <MenuItem Header="O_ptions"
                           Name="MenuOptions"
                           Tag="Options"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <Separator/>
                 <MenuItem Header="E_xit"
                           Name="MenuExit"
@@ -111,7 +119,7 @@
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
             </MenuItem>
 
             <MenuItem Header="_View"
@@ -119,7 +127,7 @@
                       Tag="MenuView"
                       Foreground="{StaticResource DefaultSystemBrush}"
                       Background="{StaticResource DefaultMenueBackgroundBrush}"
-                      Cursor="Hand">
+                      Cursor="Arrow">
                 <MenuItem Header="_Inbox"
                           Name="MenuViewInbox"
                           Tag="ViewInbox"
@@ -127,7 +135,7 @@
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="True"
                           IsChecked="True"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <MenuItem Header="_Sent"
                           Name="MenuViewSent"
                           Tag="ViewSent"
@@ -135,7 +143,7 @@
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="True"
                           IsChecked="True"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <MenuItem Header="_Filed e-mails"
                           Name="MenuViewAll"
                           Tag="ViewAll"
@@ -143,7 +151,7 @@
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="True"
                           IsChecked="True"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <Separator/>
                 <MenuItem Header="_Read"
                           Name="MenuViewRead"
@@ -152,7 +160,7 @@
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="True"
                           IsChecked="True"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <MenuItem Header="_Unread"
                           Name="MenuViewUnRead"
                           Tag="ViewUnRead"
@@ -160,7 +168,7 @@
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="True"
                           IsChecked="True"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
             </MenuItem>
 
             <MenuItem Header="_Help"
@@ -168,14 +176,14 @@
                       Tag="MenuHelp"
                       Foreground="{StaticResource DefaultSystemBrush}"
                       Background="{StaticResource DefaultMenueBackgroundBrush}"
-                      Cursor="Hand">
+                      Cursor="Arrow">
                 <MenuItem Header="_Help"
                           Name="MenuHelpSub"
                           Tag="Help"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
                 <Separator/>
                 <MenuItem Header="_About"
                           Name="MenuAbout"
@@ -183,7 +191,7 @@
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Hand"/>
+                          Cursor="Arrow"/>
             </MenuItem>
 
         </Menu>
@@ -218,7 +226,7 @@
                               IsTabStop="True"
                               ClipToBounds="False"
                               AllowDrop="False"
-                              Cursor="Hand"
+                              Cursor="Arrow"
                               IsTextSearchEnabled="False"
                               SelectionMode="Extended" 
                               GridViewColumnHeader.Click="ListViewColumnHeaderClickedHandler"
@@ -233,7 +241,7 @@
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <MenuItem Header="F_ile "
                                           Name="MenuContextFile2"
                                           Visibility="Collapsed"
@@ -241,7 +249,7 @@
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <MenuItem Header="Fi_le "
                                           Name="MenuContextFile3"
                                           Visibility="Collapsed"
@@ -249,7 +257,7 @@
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <MenuItem Header="Fil_e "
                                           Name="MenuContextFile4"
                                           Visibility="Collapsed"
@@ -257,7 +265,7 @@
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <Separator Name="ContextMenuSeperator"
                                            Visibility="Collapsed"/>
                                 <MenuItem Header="_Open"
@@ -266,28 +274,28 @@
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <MenuItem Header="Mark as Read"
                                           Name="MenuContextToggleRead"
                                           Tag="ToggleRead"
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <MenuItem Header="_Hide"
                                           Name="MenuContextHide"
                                           Tag="Hide"
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                                 <MenuItem Header="_Delete"
                                           Name="MenuContextDelete"
                                           Tag="Delete"
                                           Foreground="{StaticResource DefaultSystemBrush}"
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
-                                          Cursor="Hand"/>
+                                          Cursor="Arrow"/>
                             </ContextMenu>
                         </ListView.ContextMenu>
 
@@ -682,7 +690,7 @@
                    Stroke="{StaticResource DefaultSystemBrush}"
                    VerticalAlignment="Top"
                    Fill="{StaticResource DefaultSystemBrush}"/>
-        <Image Cursor="Hand"
+        <Image Cursor="Arrow"
                HorizontalAlignment="Right"
                Margin="0,3,6,5"
                Name="imgClose"
@@ -692,7 +700,7 @@
                Grid.Column="1"
                Height="14"
                ToolTip="Close"/>
-        <Image Cursor="Hand"
+        <Image Cursor="Arrow"
                HorizontalAlignment="Right"
                Margin="0,3,36,5"
                Name="imgMinimize"
@@ -702,7 +710,7 @@
                Grid.Column="1"
                ToolTip="Minimize"
                Opacity="0.52"/>
-        <Image Cursor="Hand"
+        <Image Cursor="Arrow"
                Margin="0,3,23,5"
                Name="imgMaximize"
                Source="/filefriendly;component/Resources/maximize.gif"

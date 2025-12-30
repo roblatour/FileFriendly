@@ -4,7 +4,7 @@
 
         Me.cbInbox.IsChecked = gRefreshInbox
         Me.cbSent.IsChecked = gRefreshSent
-        Me.cbOther.IsChecked = gRefreshAll
+        Me.cbOther.IsChecked = gRefreshOtherFolders
 
     End Sub
 
@@ -16,11 +16,11 @@
 
         gRefreshInbox = Me.cbInbox.IsChecked
         gRefreshSent = Me.cbSent.IsChecked
-        gRefreshAll = Me.cbOther.IsChecked
+        gRefreshOtherFolders = Me.cbOther.IsChecked
         gRefreshConfirmed = True
 
         If My.Settings.FirstRun Then
-            If gRefreshAll Then
+            If gRefreshOtherFolders Then
 
                 ShowMessageBox("FileFriendly", _
                   CustomDialog.CustomDialogIcons.Warning, _

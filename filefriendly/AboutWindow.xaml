@@ -31,7 +31,7 @@
                 </Grid>
             </TabItem>
         </TabControl>
-        <Image Cursor="Hand" HorizontalAlignment="Right" Margin="0,4,7,7" Name="imgClose" Source="/filefriendly;component/Resources/close.gif" Stretch="Fill" ToolTip="Close" Width="14" />
+        <Image Cursor="Arrow" HorizontalAlignment="Right" Margin="0,4,7,7" Name="imgClose" Source="/filefriendly;component/Resources/close.gif" Stretch="Fill" ToolTip="Close" Width="14" />
         <TabControl Foreground="Brown" Margin="10,11,14,0" Name="TabControl2" Grid.Row="2">
             <TabItem Foreground="Brown" Header="About" Name="TabItem2">
                 <Grid>

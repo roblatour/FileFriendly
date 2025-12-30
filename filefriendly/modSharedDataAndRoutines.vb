@@ -69,8 +69,7 @@
     Friend gPickARefreshModeWindow As PickARefreshMode
     Friend gAboutWindow As LicenseWindow
 
-    Friend gRefreshInbox, gRefreshSent, gRefreshAll, gRefreshConfirmed As Boolean
-    Friend gBypassRefreshPrompt As Boolean = False
+    Friend gRefreshInbox, gRefreshSent, gRefreshOtherFolders, gRefreshConfirmed As Boolean
 
     Public Enum FolderReviewContext
         ForScanning = 1
@@ -197,8 +196,7 @@
         If MenuKeyStrokeOverRide Then Exit Sub
 
         If e.Key = Key.F5 Then
-            gBypassRefreshPrompt = True
-            gProxyAction = "Refresh"
+            gProxyAction = "Quick Refresh [F5]"
             gMainWindow.SafelyPerformActionByProxy()
             Exit Sub
         End If

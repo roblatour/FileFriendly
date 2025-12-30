@@ -350,7 +350,7 @@ Class MainWindow
 
             gRefreshInbox = My.Settings.ScanInbox
             gRefreshSent = My.Settings.ScanSent
-            gRefreshAll = My.Settings.ScanAll
+            gRefreshOtherFolders = My.Settings.ScanAll
 
             Me.MenuViewRead.IsChecked = gViewRead
             Me.MenuViewUnRead.IsChecked = gViewUnRead
@@ -370,7 +370,7 @@ Class MainWindow
 
             CheckIfNewVersionIsAvailable()
 
-            RefreshGrid(True, False)
+            RefreshGrid(True, False, False)
 
             ReDim ActionLog(ActionLogMaxSubEntries, ActionLogMaxSubEntries)
 
@@ -714,11 +714,11 @@ Class MainWindow
 
         gViewInbox = gRefreshInbox
         gViewSent = gRefreshSent
-        gViewAll = gRefreshAll
+        gViewAll = gRefreshOtherFolders
 
         MenuViewInbox.IsChecked = gRefreshInbox
         MenuViewSent.IsChecked = gRefreshSent
-        MenuViewAll.IsChecked = gRefreshAll
+        MenuViewAll.IsChecked = gRefreshOtherFolders
 
         If gViewAll Or gViewInbox Or gViewSent Then
             MenuView.Foreground = gForegroundColourEnabled
@@ -768,7 +768,7 @@ Class MainWindow
 
         Else
 
-            If gRefreshAll Or gRefreshSent Or gRefreshInbox Then
+            If gRefreshOtherFolders Or gRefreshSent Or gRefreshInbox Then
                 Me.MenuRefresh.Foreground = gForegroundColourEnabled
                 Me.MenuActions.Foreground = gForegroundColourEnabled
             Else
@@ -1012,7 +1012,7 @@ Class MainWindow
         Else
             Me.MenuRefresh.Header = "_Refresh"
             ' Enabled/disabled and colour based on current rules
-            MenuOptionEnabled("Refresh", (gRefreshInbox Or gRefreshSent Or gRefreshAll))
+            MenuOptionEnabled("Refresh", (gRefreshInbox Or gRefreshSent Or gRefreshOtherFolders))
         End If
     End Sub
 
@@ -1170,7 +1170,7 @@ Class MainWindow
                 Exit Try
             End If
 
-            If Not (gRefreshInbox Or gRefreshSent Or gRefreshAll) Then
+            If Not (gRefreshInbox Or gRefreshSent Or gRefreshOtherFolders) Then
                 Me.lblMainMessageLine.Content = "0 e-mails"
                 Exit Try
             End If
@@ -1283,7 +1283,7 @@ Class MainWindow
 
     Private gRefreshQueued As Boolean = False
 
-    Private Sub RefreshGrid(ByVal InitialLoad As Boolean, ByVal MSOutlookDrivenEvent As Boolean)
+    Private Sub RefreshGrid(ByVal InitialLoad As Boolean, ByVal MSOutlookDrivenEvent As Boolean, ByVal QuickRefresh As Boolean)
 
         Try
 
@@ -1301,7 +1301,7 @@ Class MainWindow
 
             BlankOutDetails()
 
-            Dim t As New Thread(Sub() RefreshBackGroundTask(InitialLoad, MSOutlookDrivenEvent)) With {
+            Dim t As New Thread(Sub() RefreshBackGroundTask(InitialLoad, MSOutlookDrivenEvent, QuickRefresh)) With {
             .IsBackground = True
             }
             t.Start()
@@ -1315,7 +1315,7 @@ Class MainWindow
     Private Collection_of_folders_to_exclude = New System.Collections.Specialized.StringCollection
     Private Collection_of_folders_to_exclude_is_empty As Boolean = True
 
-    Private Sub RefreshBackGroundTask(ByVal InitialLoad As Boolean, ByVal MSOutlookDrivenEvent As Boolean)
+    Private Sub RefreshBackGroundTask(ByVal InitialLoad As Boolean, ByVal MSOutlookDrivenEvent As Boolean, ByVal QuickRefresh As Boolean)
 
 
 #If DEBUG Then
@@ -1332,13 +1332,13 @@ Class MainWindow
 
             MemoryManagement.FlushMemory()
 
-            If MSOutlookDrivenEvent Then
+            If MSOutlookDrivenEvent OrElse QuickRefresh Then
 
                 ' if this is an Outlook driven event we skip the finding of all folders
 
             Else
 
-                If InitialLoad OrElse gRefreshAll Then
+                If InitialLoad OrElse gRefreshOtherFolders Then
 
                     Me.Dispatcher.BeginInvoke(New BeginLoadCallback(AddressOf BeginLoad), New Object() {})
 
@@ -1361,11 +1361,12 @@ Class MainWindow
 
             End If
 
+
             gMinimizeMaximizeAllowed = True
 
             Me.Dispatcher.BeginInvoke(New ShowFoldersCallback(AddressOf ShowFolders), New Object() {})
 
-            If gRefreshInbox OrElse gRefreshSent OrElse gRefreshAll Then
+            If gRefreshInbox OrElse gRefreshSent OrElse gRefreshOtherFolders Then
 
                 If lTotalEMailsToBeReviewed > 0 Then
 
@@ -1373,7 +1374,7 @@ Class MainWindow
 
                     Me.Dispatcher.BeginInvoke(New SetProgressBarVisableCallback(AddressOf SetProgressBarVisable), New Object() {Windows.Visibility.Visible})
 
-                    ProcessAllFolders(MSOutlookDrivenEvent)
+                    ProcessAllFolders(MSOutlookDrivenEvent, QuickRefresh)
 
                     If Not gCancelRefresh Then
 
@@ -1508,11 +1509,9 @@ CleanExit:
 
             ReDim Preserve gFolderTable(gFolderTableIndex)
             ReDim gFolderNamesTable(gFolderTableIndex)
-            ReDim gFolderNamesTableTrimmed(gFolderTableIndex)
 
             For x As Integer = 0 To gFolderTable.Length - 1
                 gFolderNamesTable(x) = gFolderTable(x).FolderPath
-                gFolderNamesTableTrimmed(x) = gFolderNamesTable(x).TrimStart("\")
             Next
 
             ' Detect special folders across all mailboxes
@@ -1597,9 +1596,9 @@ CleanExit:
             Dim ToolTipMessage As String = ""
             Dim ProgressBarMaxValue As Double
 
-            If gRefreshAll OrElse gRefreshInbox OrElse gRefreshSent Then
+            If gRefreshOtherFolders OrElse gRefreshInbox OrElse gRefreshSent Then
 
-                If gRefreshAll Then
+                If gRefreshOtherFolders Then
 
                     ToolTipMessage = "E-mails from all included folders are being reviewed"
 
@@ -1763,7 +1762,7 @@ CleanExit:
 
             Include = True
 
-        ElseIf gRefreshAll Then
+        ElseIf gRefreshOtherFolders Then
 
             Include = Collection_of_folders_to_exclude_is_empty OrElse (Collection_of_folders_to_exclude.IndexOf(CurrentFolderPath) = -1)
 
@@ -1815,9 +1814,12 @@ CleanExit:
         Return sb.ToString()
     End Function
 
-    Private Sub ProcessAllFolders(Optional ByVal MSOutlookDrivenEvent As Boolean = False)
+    Private Sub ProcessAllFolders(ByVal MSOutlookDrivenEvent As Boolean, ByVal QuickRefresh As Boolean)
 
         Static LastFullyLoadedFolderTable() As FolderInfo
+
+        Static LastEmailTable() As StructureOfEmailDetails
+        Static LastEmailTableIndex As Integer = 0
 
         'Dim sw As New Stopwatch
         'sw.Start()
@@ -1863,7 +1865,9 @@ CleanExit:
 
         ' add all other folders first
 
-        If gRefreshAll AndAlso (Not MSOutlookDrivenEvent) Then
+        Dim PopulateFoldersUsingPreviousData As Boolean = True
+
+        If gRefreshOtherFolders AndAlso (Not MSOutlookDrivenEvent) AndAlso (Not QuickRefresh) Then
 
             For x As Int16 = 0 To gFolderTableIndex
 
@@ -1886,14 +1890,28 @@ CleanExit:
 
             Next
 
-            ReDim LastFullyLoadedFolderTable(gFolderTable.Count)
-            LastFullyLoadedFolderTable = gFolderTable
+            ReDim LastFullyLoadedFolderTable(gFolderTable.Length - 1)
+            Array.Copy(gFolderTable, LastFullyLoadedFolderTable, gFolderTable.Length)
+
+            ReDim LastEmailTable(gEmailTableIndex - 1)
+            Array.Copy(gEmailTable, LastEmailTable, gEmailTableIndex)
+            LastEmailTableIndex = gEmailTableIndex
+
+            PopulateFoldersUsingPreviousData = False
 
         End If
 
-        If MSOutlookDrivenEvent AndAlso (Not gRefreshInbox) AndAlso (Not LastFullyLoadedFolderTable Is Nothing) Then
+        ' this keeps the last Fully Loaded Folder Table and the Email Table (with recommendations) in place when there is an MS Outlook driven event
+        If PopulateFoldersUsingPreviousData Then
 
-            gFolderTable = LastFullyLoadedFolderTable
+            If (LastFullyLoadedFolderTable IsNot Nothing) Then
+                Array.Copy(LastFullyLoadedFolderTable, gFolderTable, LastFullyLoadedFolderTable.Length)
+            End If
+
+            If LastEmailTable IsNot Nothing Then
+                Array.Copy(LastEmailTable, gEmailTable, LastEmailTable.Length)
+                gEmailTableIndex = LastEmailTableIndex
+            End If
 
         End If
 
@@ -1956,8 +1974,9 @@ CleanExit:
 
         strCollection = Nothing
 
+        ' resize email table to its actual needed size
         If gEmailTableIndex > 0 Then
-            ReDim Preserve gEmailTable(gEmailTableIndex)
+            ReDim Preserve gEmailTable(gEmailTableIndex - 1)
         Else
             ReDim gEmailTable(0)
         End If
@@ -2246,12 +2265,6 @@ EarlyExit:
 
     Private Sub EstablishRecommendations()
 
-        If gRefreshAll Then
-            'recommendations are only made when refresh all is selected
-        Else
-            Exit Sub
-        End If
-
         Try
 
             'A second sort of the email table is required to subjects in order with their trailers
@@ -2420,8 +2433,6 @@ EarlyExit:
 
         Try
 
-            'If gEmailTableIndex = 0 Then Exit Try
-
             '' for debugging print the contents of the email table to the console for debugging
             'For x As Integer = 0 To gEmailTableIndex - 1
             '    Debug.WriteLine(x.ToString & " " & gEmailTable(x).sSubject)
@@ -2431,72 +2442,6 @@ EarlyExit:
             operation2.Wait()
 
             If gEmailTableIndex = 0 Then Exit Try
-
-            ' When only Inbox/Sent are scanned, show those items directly
-            If Not gRefreshAll AndAlso (gRefreshInbox OrElse gRefreshSent) Then
-
-                ReDim gFinalRecommendationTable(gEmailTableIndex - 1)
-
-                Dim line As Integer = 0
-
-                For x As Integer = 1 To gEmailTableIndex
-
-                    Dim origFolder As Integer = gEmailTable(x).sOriginalFolderReferenceNumber
-                    Dim inInbox As Boolean = gInboxFolderIndices.Contains(origFolder)
-                    Dim inSent As Boolean = gSentFolderIndices.Contains(origFolder)
-
-                    ' respect ScanInbox/ScanSent toggles
-                    If (gRefreshInbox AndAlso inInbox) OrElse (gRefreshSent AndAlso inSent) Then
-
-                        Dim row As New ListViewRowClass
-                        With gEmailTable(x)
-                            row.Index = line
-                            row.MailBoxName = .sMailBoxName
-                            row.Subject = .sSubject
-                            row.Trailer = .sTrailer
-                            row.From = .sFrom
-                            row.xTo = .sTo
-                            row.DateTime = .sDateAndTime
-                            row.OriginalFolder = .sOriginalFolderReferenceNumber
-                            row.RecommendedFolder1 = .sRecommendedFolder1ReferenceNumber
-                            row.RecommendedFolder2 = .sRecommendedFolder2ReferenceNumber
-                            row.RecommendedFolder3 = .sRecommendedFolder3ReferenceNumber
-                            row.RecommendedFolderFinal = .sRecommendedFolderFinalReferenceNumber
-                            row.OutlookEntryID = .sOutlookEntryID
-                            row.UnRead = .sUnRead
-                        End With
-
-                        gFinalRecommendationTable(line) = row
-                        line += 1
-                    End If
-                Next
-
-                If line = 0 Then
-                    ' nothing to show
-                    ReDim gFinalRecommendationTable(0)
-                    Dim operation3 = Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem),
-                                     New Object() {gFinalRecommendationTable})
-                    operation3.Wait()
-                    lTotalRecommendations = 0
-                    Exit Try
-                End If
-
-                ReDim Preserve gFinalRecommendationTable(line - 1)
-
-                ApplyCurrentSortOrderToFinalTable()
-
-                Dim operation4 = Me.Dispatcher.BeginInvoke(New SetListViewItemCallback(AddressOf SetListViewItem), New Object() {gFinalRecommendationTable})
-                operation4.Wait()
-
-                lTotalRecommendations = line
-
-                Exit Try
-
-            End If
-
-            If gEmailTableIndex = 0 Then
-                Exit Try
-            End If
 
             ReDim gFinalRecommendationTable(gEmailTableIndex)
 
@@ -2647,8 +2592,6 @@ EarlyExit:
                 End If
 
             Next
-
-            ' gEmailTable = Nothing ' testing here
 
             ReDim Preserve gFinalRecommendationTable(lLineNumber - 1)
 
@@ -3283,10 +3226,10 @@ EarlyExit:
                 Me.tbDetailOrginal.Text = gFolderNamesTable(.OriginalFolder).TrimStart("\"c)
 
                 ' Only offer pick folders when:
-                ' 1) Scan Filed Emails is enabled (gRefreshAll = True), AND
+                ' 1) Scan Filed Emails is enabled (gRefreshOtherFolders = True), AND
                 ' 2) There is a valid recommended folder (RecommendedFolderFinal >= 0)
                 Dim hasValidRecommendation As Boolean = (.RecommendedFolderFinal >= 0)
-                Dim shouldOfferPicks As Boolean = gRefreshAll AndAlso hasValidRecommendation
+                Dim shouldOfferPicks As Boolean = gRefreshOtherFolders AndAlso hasValidRecommendation
 
                 If shouldOfferPicks Then
                     Me.tbDetailTarget1.Text = gFolderNamesTable(.RecommendedFolderFinal)
@@ -3336,7 +3279,7 @@ EarlyExit:
     MenuOpen.Click, MenuHide.Click, MenuDelete.Click, MenuExit.Click,
     MenuViewRead.Click, MenuViewUnRead.Click,
     MenuViewAll.Click, MenuViewInbox.Click, MenuViewSent.Click,
-    MenuUndo.Click, MenuHelpSub.Click, MenuAbout.Click, MenuOptions.Click, MenuRefresh.Click,
+    MenuUndo.Click, MenuHelpSub.Click, MenuAbout.Click, MenuOptions.Click, MenuRefresh.Click, MenuQuickRefresh.Click,
     MenuContextDelete.Click, MenuContextHide.Click, MenuContextOpen.Click,
     MenuContextToggleRead.Click
 
@@ -3543,7 +3486,6 @@ EarlyExit:
 
                         End If
 
-                        'testing here
                         Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
                         Call _MainWindow.BlockDuplicateEventProcessing(action, mailItem.EntryID)
 
@@ -3665,8 +3607,10 @@ EarlyExit:
 
     End Sub
 
-    Private Sub StartRefresh(ByVal bypassPromptForOptions As Boolean)
+    Private Sub StartRefresh(ByVal QuickRefresh As Boolean)
+
         gRefreshConfirmed = False
+
         Try
             If gIsRefreshing Then
                 gCancelRefresh = True
@@ -3691,7 +3635,7 @@ EarlyExit:
             MenuOptionEnabled("Undo", False)
             ActionLogIndex = 0
 
-            If bypassPromptForOptions Then
+            If QuickRefresh Then
                 gRefreshConfirmed = True
             Else
                 gPickARefreshModeWindow = New PickARefreshMode
@@ -3701,10 +3645,10 @@ EarlyExit:
 
             If gRefreshConfirmed Then
 
-                If gRefreshInbox Or gRefreshSent Or gRefreshAll Then
+                If gRefreshInbox Or gRefreshSent Or gRefreshOtherFolders Then
                     MenuRefresh.Foreground = gForegroundColourEnabled
                     MenuActions.Foreground = gForegroundColourEnabled
-                    RefreshGrid(False, False)
+                    RefreshGrid(False, False, QuickRefresh)
                 Else
                     ShowMessageBox("FileFriendly",
                                            CustomDialog.CustomDialogIcons.Warning,
@@ -3720,8 +3664,7 @@ EarlyExit:
 
             End If
 
-        Finally
-            gBypassRefreshPrompt = False
+        Catch
         End Try
     End Sub
 
@@ -3763,11 +3706,11 @@ EarlyExit:
 
                     gRefreshInbox = My.Settings.ScanInbox
                     gRefreshSent = My.Settings.ScanSent
-                    gRefreshAll = My.Settings.ScanAll
+                    gRefreshOtherFolders = My.Settings.ScanAll
                     gAutoChainSelect = My.Settings.AutoChainSelect
 
                     If gARefreshIsRequired Then
-                        RefreshGrid(False, False)
+                        RefreshGrid(False, False, False)
                     End If
 
                 Case Is = "Undo"
@@ -3778,9 +3721,13 @@ EarlyExit:
                         UndoLastAction()
                     End If
 
+                Case Is = "Quick Refresh [F5]"
+
+                    StartRefresh(True)
+
                 Case Is = "Refresh"
 
-                    StartRefresh(gBypassRefreshPrompt)
+                    StartRefresh(False)
 
                 Case Is = "Exit"
 
@@ -3814,20 +3761,6 @@ EarlyExit:
                     gViewUnRead = flag
                     ValidateReadUnReadCombinatation()
                     ApplyFilter()
-
-                Case Is = "ViewRecommendedFolder"
-
-                    If flag Then
-                        Me.Label7.Visibility = Windows.Visibility.Visible
-                        Me.TabControl2.Height = gOriginalTabControl2Height
-                    Else
-                        Me.Label7.Visibility = Windows.Visibility.Hidden
-                        Me.Row3.Height = New System.Windows.GridLength(Me.Row3.ActualHeight - 20, GridUnitType.Auto)
-                        Me.TabControl2.Height = Me.TabControl2.ActualHeight - 20
-                    End If
-
-                Case Is = "ViewFolderWindow"
-                    ShowFolderWindow()
 
                 Case Is = "Help"
                     System.Diagnostics.Process.Start(gHelpWebPage)
@@ -4148,8 +4081,10 @@ EarlyExit:
             Case Is = "Refresh"
                 If flag Then
                     Me.MenuRefresh.Foreground = gForegroundColourEnabled
+                    Me.MenuQuickRefresh.Foreground = gForegroundColourEnabled
                 Else
                     Me.MenuRefresh.Foreground = gForegroundColourDisabled
+                    Me.MenuQuickRefresh.Foreground = gForegroundColourDisabled
                 End If
                 Me.MenuRefresh.IsEnabled = flag
 
@@ -4218,7 +4153,7 @@ EarlyExit:
                     Me.MenuViewSent.Foreground = gForegroundColourDisabled
                 End If
 
-                If gRefreshAll Then
+                If gRefreshOtherFolders Then
                 Else
                     Me.MenuViewAll.IsEnabled = False
                     Me.MenuViewAll.Foreground = gForegroundColourDisabled
@@ -5660,7 +5595,7 @@ EarlyExit:
         If shouldSchedule Then
             Me.Dispatcher.BeginInvoke(New Action(Sub()
                                                      Try
-                                                         RefreshGrid(False, True)
+                                                         RefreshGrid(False, True, False)
                                                      Finally
                                                          SyncLock gRefreshGridLock
                                                              gRefreshGridScheduled = False
@@ -5726,7 +5661,7 @@ EarlyExit:
                 ReDim Preserve gEmailTable(gEmailTableIndex)
                 gEmailTable(gEmailTableIndex) = emailDetail
 
-                UpdateListView()
+                ScheduleRefreshGrid()
 
             Catch
 
@@ -5737,55 +5672,6 @@ EarlyExit:
         End SyncLock
 
     End Sub
-
-    'Friend Sub OnEmailRemovedFromEvent(ByVal folderIndex As Integer, ByVal entryIDToBeRemoved As String)
-
-    '    Try
-
-    '        If String.IsNullOrEmpty(entryIDToBeRemoved) Then Return
-
-    '        SetMousePointer(Cursors.Wait)
-
-    '        ' Add to suppress list to prevent event loop
-    '        SyncLock gSuppressEventLock
-    '            gSuppressEventForEntryIds.Add(entryIDToBeRemoved)
-    '        End SyncLock
-
-    '        Dim indexToRemove As Integer = -1
-
-    '        For i As Integer = 0 To gEmailTableIndex - 1
-    '            If String.IsNullOrEmpty(gEmailTable(i).sOutlookEntryID) Then
-    '                Continue For
-    '            End If
-    '            If gEmailTable(i).sOutlookEntryID = entryIDToBeRemoved Then
-    '                indexToRemove = i
-    '                Exit For
-    '            End If
-    '        Next
-
-    '        If indexToRemove >= 0 Then
-    '            For i As Integer = indexToRemove To gEmailTableIndex - 2
-    '                gEmailTable(i) = gEmailTable(i + 1)
-    '            Next
-    '            gEmailTableIndex -= 1
-    '            If gEmailTableIndex > 0 Then
-    '                ReDim Preserve gEmailTable(gEmailTableIndex)
-    '            Else
-    '                ReDim gEmailTable(0)
-    '            End If
-    '        End If
-
-    '        If indexToRemove >= 0 Then
-    '            ScheduleRefreshGrid(SelectionRestoreReason.OutlookDelete)
-    '        End If
-
-    '    Catch ex As Exception
-
-    '    Finally
-    '        SetMousePointer(Cursors.Arrow)
-    '    End Try
-
-    'End Sub
 
 #Region "Event Loop Prevention"
 
