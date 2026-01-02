@@ -6456,14 +6456,29 @@ EarlyExit:
                 If mailItem Is Nothing Then Return
                 If mailItem.EntryID Is Nothing Then Return
 
-                ' Block duplicate requests for the same email
-                Dim entryId As String = mailItem.EntryID
+                Dim entryId As String = ""
+
+                Try
+                    entryId = mailItem.EntryID
+                Catch
+                    Return
+                End Try
+
                 Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
                 If _mainWindow.BlockDuplicateEventProcessing(action, entryId) Then Return
 
                 _mainWindow.ScheduleRefreshGrid()
 
             Catch ex As Exception
+
+            Finally
+                Try
+                    If mailItem IsNot Nothing Then
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(mailItem)
+                        mailItem = Nothing
+                    End If
+                Catch
+                End Try
 
             End Try
 
