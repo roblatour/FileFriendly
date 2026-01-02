@@ -3923,9 +3923,9 @@ EarlyExit:
                     gRefreshOtherFolders = My.Settings.ScanAll
                     gAutoChainSelect = My.Settings.AutoChainSelect
 
-                    'If gARefreshIsRequired Then
-                    '    RefreshGrid(False, False, True)
-                    'End If
+                    If gARefreshIsRequired Then
+                        RefreshGrid(False, False, True)
+                    End If
 
                 Case Is = "Undo"
 
