@@ -1,4 +1,4 @@
-# Overview - FileFriendly v2.2 (2025-12-30)
+# Overview - FileFriendly v2.2.1 (2026-01-01)
 
 File Friendly works with Microsoft Outlook® to quickly and easily file
 your e-mails exactly where you need them to be.
@@ -66,5 +66,5 @@ https://github.com/roblatour?tab=repositories.
 
 * * *
 
-Copyright © 2025, Rob Latour
+Copyright © 2026, Rob Latour
 * * *
