@@ -35,7 +35,15 @@
 
         Catch ex As Exception
             If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+            ShowMessageBox("FileFriendly",
+                         CustomDialog.CustomDialogIcons.Stop,
+                         "Unexpected Error!",
+                         "FileFriendly has encountered an unexpected error.",
+                         ex.ToString,
+                         "",
+                         CustomDialog.CustomDialogIcons.None,
+                         CustomDialog.CustomDialogButtons.OK,
+                         CustomDialog.CustomDialogResults.OK)
         End Try
 
     End Sub

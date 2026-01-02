@@ -40,7 +40,7 @@
                 </Grid>
             </TabItem>
         </TabControl>
-        <TextBox Height="26" Margin="12,10,65,0" Name="TextBox1" VerticalAlignment="Top" Foreground="Brown" HorizontalContentAlignment="Center" Grid.Row="4">FileFriendly © Copyright 2025 Rob Latour</TextBox>
+        <TextBox Height="26" Margin="12,10,65,0" Name="TextBox1" VerticalAlignment="Top" Foreground="Brown" HorizontalContentAlignment="Center" Grid.Row="4">FileFriendly © Copyright 2026 Rob Latour</TextBox>
         <Button Height="25" Margin="385,0,0,0" Name="Button2" VerticalAlignment="Center" Width="62" HorizontalAlignment="Left" IsCancel="True" IsDefault="True" Grid.Row="4">_OK</Button>
         <Label Margin="10,5,26,0" Name="lbVersion" FontFamily="Vladimir Script" FontSize="24" Foreground="Brown" HorizontalContentAlignment="Center" Grid.RowSpan="3" Opacity="0.7" Height="34" VerticalAlignment="Top" Focusable="False">FileFriendly version 1</Label>
     </Grid>

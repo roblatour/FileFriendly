@@ -1,7 +1,9 @@
 ﻿Imports System.Linq
+Imports System.Runtime.InteropServices.ComTypes
 Imports System.Threading
 Imports System.Threading.Tasks
 Imports System.Windows.Threading
+Imports Microsoft.Office
 Imports Microsoft.Office.Interop
 
 Class MainWindow
@@ -79,6 +81,8 @@ Class MainWindow
     Private gFinalRecommendationTable(1) As ListViewRowClass
 
     Private Shared gIsRefreshing As Boolean = False
+    Private ReadOnly gRefreshGateLock As New Object
+
     Private gCancelRefresh As Boolean = False
 
     Private Enum QueuedEmailEventType
@@ -119,9 +123,6 @@ Class MainWindow
 
     ' Number of distinct Outlook mailboxes (stores) detected
     Private Shared _TotalMailBoxes As Integer = 0 ' number of mailboxes in Outlook PostOffice
-
-    ' Distinct mailbox names encountered during this refresh
-    Private ReadOnly _mailboxNames As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
 
     Private gOriginalTabControl2Height As Integer
 
@@ -235,11 +236,17 @@ Class MainWindow
                     Throw New Exception("Outlook version is empty")
                 End If
             Catch
-                If My.Settings.SoundAlert Then Beep()
-                MsgBox("FileFriendly has encountered a problem and cannot continue." & vbCrLf & vbCrLf &
-                       "It appears that Microsoft Outlook is not installed or accessible on this computer." & vbCrLf & vbCrLf &
-                       "FileFriendly requires Outlook to be able to run.",
-                       MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly, "FileFriendly - Critical Error")
+
+                Call ShowMessageBox("FileFriendly - Critical Error",
+                     CustomDialog.CustomDialogIcons.Stop,
+                     "It appears that Microsoft Outlook is not installed or accessible on this computer.",
+                     "FileFriendly requires Outlook to be able to run.",
+                     "MainWindow_Loaded",
+                     "",
+                     CustomDialog.CustomDialogIcons.None,
+                     CustomDialog.CustomDialogButtons.OK,
+                     CustomDialog.CustomDialogResults.OK)
+
                 End
             End Try
 
@@ -397,8 +404,16 @@ Class MainWindow
             Thread.Sleep(500)
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString, MsgBoxStyle.OkOnly, "FileFriendly - Loading Error")
+
+            Call ShowMessageBox("FileFriendly - Loading Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
         End Try
 
     End Sub
@@ -416,15 +431,15 @@ Class MainWindow
 
             If appProc.Length > 1 Then
 
-                ShowMessageBox("FileFriendly - Note",
-               CustomDialog.CustomDialogIcons.Information,
-               "FileFriendly is already running",
-               "Only one instance of FileFriendly can be run at once.",
-               "The original instance of FileFriendly will remain running, but a new one will not be started",
-               "",
-               CustomDialog.CustomDialogIcons.None,
-               CustomDialog.CustomDialogButtons.OK,
-               CustomDialog.CustomDialogResults.OK)
+                Call ShowMessageBox("FileFriendly - Start Warning",
+                     CustomDialog.CustomDialogIcons.Warning,
+                     "FileFriendly is already running",
+                     "Only one instance of FileFriendly can be run at once.",
+                     "The original instance of FileFriendly will remain running, but a new one will not be started",
+                     "",
+                     CustomDialog.CustomDialogIcons.None,
+                     CustomDialog.CustomDialogButtons.OK,
+                     CustomDialog.CustomDialogResults.OK)
 
                 End
 
@@ -580,8 +595,17 @@ Class MainWindow
             End If
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+
+            Call ShowMessageBox("FileFriendly",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         End Try
 
     End Sub
@@ -690,6 +714,43 @@ Class MainWindow
         End If
     End Sub
 
+    ' Keeps the Wait cursor active across scheduled + running refresh work.
+    Private ReadOnly gRefreshCursorLock As New Object()
+    Private gRefreshCursorRefCount As Integer = 0
+
+    Private Sub BeginRefreshCursor()
+        Dim shouldSetWait As Boolean = False
+
+        SyncLock gRefreshCursorLock
+            gRefreshCursorRefCount += 1
+            If gRefreshCursorRefCount = 1 Then
+                shouldSetWait = True
+            End If
+        End SyncLock
+
+        If shouldSetWait Then
+            SetMousePointer(Cursors.Wait)
+        End If
+    End Sub
+
+    Private Sub EndRefreshCursor()
+        Dim shouldSetArrow As Boolean = False
+
+        SyncLock gRefreshCursorLock
+            If gRefreshCursorRefCount > 0 Then
+                gRefreshCursorRefCount -= 1
+                If gRefreshCursorRefCount = 0 Then
+                    shouldSetArrow = True
+                End If
+            End If
+        End SyncLock
+
+        If shouldSetArrow Then
+            SetMousePointer(Cursors.Arrow)
+        End If
+    End Sub
+
+
     Delegate Sub ShowFoldersCallback()
     Private Sub ShowFolders()
 
@@ -737,9 +798,6 @@ Class MainWindow
             MenuViewUnRead.IsChecked = False
         End If
 
-        ' Reset mailbox tracking for this refresh
-        _mailboxNames.Clear()
-
     End Sub
 
     Delegate Sub FinalizeLoadCallback(ByVal MSOutlookDrivenEvent As Boolean)
@@ -781,7 +839,6 @@ Class MainWindow
 
         End If
 
-
         ' Play a beep if that option is set in the settings except:
         ' if this was a MS Outlook driven event (as opposed to a startup or user initiated refresh) 
         If My.Settings.SoundScanComplete Then
@@ -796,6 +853,13 @@ Class MainWindow
             gRefreshQueued = False
             ScheduleRefreshGrid()
         End If
+
+        ' Mark scheduled refresh complete and release the cursor *after* any queued refresh decision above.
+        SyncLock gRefreshGridLock
+            gRefreshGridScheduled = False
+        End SyncLock
+
+        EndRefreshCursor()
 
     End Sub
 
@@ -1093,8 +1157,16 @@ Class MainWindow
             RecalculateListViewColumnWidths()
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
+
+            Call ShowMessageBox("FileFriendly - Set ListView Item Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -1290,12 +1362,21 @@ Class MainWindow
 
         Try
 
-            If gIsRefreshing Then
-                gRefreshQueued = True
+            Dim shouldStart As Boolean
+
+            SyncLock gRefreshGateLock
+                If gIsRefreshing Then
+                    gRefreshQueued = True
+                    shouldStart = False
+                Else
+                    gIsRefreshing = True
+                    shouldStart = True
+                End If
+            End SyncLock
+
+            If Not shouldStart Then
                 Return
             End If
-
-            gIsRefreshing = True
 
             ' Remove arrow from previously sorted header
             If _lastheaderClicked IsNot Nothing Then
@@ -1304,14 +1385,21 @@ Class MainWindow
 
             BlankOutDetails()
 
-            Dim t As New Thread(Sub() RefreshBackGroundTask(InitialLoad, MSOutlookDrivenEvent, QuickRefresh)) With {
-            .IsBackground = True
-            }
-            t.Start()
+            ' Use the thread pool instead of creating a raw Thread per refresh.
+            Task.Run(Sub() RefreshBackGroundTask(InitialLoad, MSOutlookDrivenEvent, QuickRefresh))
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+
+            Call ShowMessageBox("FileFriendly - Refresh Grid Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         End Try
 
     End Sub
@@ -1331,8 +1419,6 @@ Class MainWindow
 #End If
 
         Try
-
-            SetMousePointer(Cursors.Wait)
 
             MemoryManagement.FlushMemory()
 
@@ -1423,8 +1509,6 @@ Class MainWindow
 
                 Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {"Done"})
 
-                SetMousePointer(Cursors.Arrow)
-
                 SetProcessPriorities("End Review")
 
             Else
@@ -1440,8 +1524,6 @@ Class MainWindow
 
                 Me.Dispatcher.BeginInvoke(New SetToolTipCallback(AddressOf SetToolTip), New Object() {"Done"})
 
-                SetMousePointer(Cursors.Arrow)
-
                 SetProcessPriorities("End Review")
 
             End If
@@ -1456,10 +1538,17 @@ CleanExit:
 
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
-        Finally
-            SetMousePointer(Cursors.Arrow)
+
+            Call ShowMessageBox("FileFriendly - Refresh Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         End Try
 
         MemoryManagement.FlushMemory()
@@ -1506,7 +1595,6 @@ CleanExit:
             End If
 
             ' sw.Stop()
-            'MsgBox(sw.ElapsedMilliseconds.ToString)
             'Console.WriteLine(sw.ElapsedMilliseconds.ToString) : sw.Stop()
 
             gFolderTableIndex -= 1
@@ -1518,7 +1606,7 @@ CleanExit:
 
             For x As Integer = 0 To gFolderTable.Length - 1
                 gFolderNamesTable(x) = gFolderTable(x).FolderPath
-                gFolderNamesTableTrimmed(x) = gFolderNamesTable(x).TrimStart("\")
+                gFolderNamesTableTrimmed(x) = gFolderNamesTable(x).TrimStart("\"c)
             Next
 
             ' Detect special folders across all mailboxes
@@ -1544,14 +1632,20 @@ CleanExit:
                 End If
 
                 ' Track Sent folders globally and per mailbox
-                If (New String() {"SENT", "SENT ITEMS", "SENT MAIL"}).Contains(nameUpper) Then
-                    gSentFolderIndices.Add(x)
-                    Continue For
-                End If
+                Select Case nameUpper
+                    Case "SENT", "SENT ITEMS", "SENT MAIL"
+                        gSentFolderIndices.Add(x)
+                        Continue For
+                End Select
 
                 ' Figure out a suitable delete folder for this store:
-
-                Dim isDeleted As Boolean = (New String() {"DELETED ITEMS", "DELETED", "TRASH"}).Contains(nameUpper)
+                Dim isDeleted As Boolean
+                Select Case nameUpper
+                    Case "DELETED ITEMS", "DELETED", "TRASH"
+                        isDeleted = True
+                    Case Else
+                        isDeleted = False
+                End Select
 
                 If Not isDeleted Then
                     Continue For
@@ -1651,8 +1745,15 @@ CleanExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+            Call ShowMessageBox("FileFriendly - Find All Folders Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -1681,63 +1782,94 @@ CleanExit:
 
         If gCancelRefresh Then Exit Sub
 
-        'Dim sStartFolderName As String = StartFolder.FolderPath.ToString
-        'System.Diagnostics.Debug.WriteLine("Processing folder: " & sStartFolderName)
-
         Dim defaultItemType As Microsoft.Office.Interop.Outlook.OlItemType
+        Dim subFolders As Microsoft.Office.Interop.Outlook.Folders = Nothing
 
         Try
+
             defaultItemType = StartFolder.DefaultItemType
+
+            If defaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
+                AddAnEntry(StartFolder)
+            End If
+
+            subFolders = StartFolder.Folders
+            If subFolders Is Nothing Then Exit Sub
+
+            Dim count As Integer = 0
+            Try
+                count = subFolders.Count
+            Catch ex As System.Runtime.InteropServices.COMException
+                Exit Sub
+            Catch
+                Exit Sub
+            End Try
+
+            For i As Integer = 1 To count
+
+                If gCancelRefresh Then Exit For
+
+                Dim oFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing
+
+                Try
+
+                    Try
+                        oFolder = subFolders.Item(i)
+                    Catch ex As System.Runtime.InteropServices.COMException
+                        Continue For
+                    Catch
+                        Continue For
+                    End Try
+
+                    If oFolder Is Nothing Then
+                        Continue For
+                    End If
+
+                    Try
+                        AddFolder(oFolder)
+                    Catch ex As System.Runtime.InteropServices.COMException
+                        ' Skip any sub-folder that errors
+                    Catch
+                        ' Ignore and continue with remaining sub-folders
+                    End Try
+
+                Finally
+
+                    If oFolder IsNot Nothing Then
+                        Try
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(oFolder)
+                        Catch
+                        End Try
+                        oFolder = Nothing
+                    End If
+
+                End Try
+
+            Next
+
         Catch ex As System.Runtime.InteropServices.COMException
             ' Skip folders that cannot be inspected due to Outlook/MAPI errors
             Exit Sub
         Catch
             ' Any other error getting DefaultItemType – skip this folder
             Exit Sub
+        Finally
+
+            If subFolders IsNot Nothing Then
+                Try
+                    System.Runtime.InteropServices.Marshal.ReleaseComObject(subFolders)
+                Catch
+                End Try
+                subFolders = Nothing
+            End If
+
         End Try
-
-        ' Process the current folder only if it is a mail folder
-        If defaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
-            Try
-                AddAnEntry(StartFolder)
-            Catch ex As System.Runtime.InteropServices.COMException
-                ' Ignore folders that fail when adding an entryId
-            Catch
-                ' Ignore and continue
-            End Try
-        End If
-
-        ' Process all sub-folders (using recursion), guarding against COM failures
-        Dim subFolders As Microsoft.Office.Interop.Outlook.Folders
-        Try
-            subFolders = StartFolder.Folders
-        Catch ex As System.Runtime.InteropServices.COMException
-            ' Cannot enumerate sub-folders for this folder
-            Exit Sub
-        Catch
-            Exit Sub
-        End Try
-
-        If subFolders Is Nothing Then Exit Sub
-
-        For Each oFolder As Microsoft.Office.Interop.Outlook.MAPIFolder In subFolders
-
-            If gCancelRefresh Then Exit For
-
-            Try
-                AddFolder(oFolder)
-            Catch ex As System.Runtime.InteropServices.COMException
-                ' Skip any sub-folder that errors
-            Catch
-                ' Ignore and continue with remaining sub-folders
-            End Try
-        Next
 
     End Sub
 
     Private Sub AddAnEntry(ByRef Folder As Microsoft.Office.Interop.Outlook.MAPIFolder)
 
-        ' Ensure the folder table is initialized at least once
+        'Ensure the folder table Is initialized at least once
         If gFolderTable Is Nothing OrElse gFolderTable.Length = 0 Then
             gFolderTableCurrentSize = gFolderTableIncrement
             ReDim gFolderTable(gFolderTableCurrentSize)
@@ -1762,41 +1894,43 @@ CleanExit:
         Dim Include As Boolean
 
         ' Determine if this folder is Inbox/Sent by its name
-        Dim folderNameUpper As String = System.IO.Path.GetFileName(CurrentFolderPath).Trim().ToUpperInvariant()
-        Dim isInboxFolder As Boolean = (folderNameUpper = "INBOX")
-        Dim isSentFolder As Boolean = (folderNameUpper = "SENT ITEMS" OrElse folderNameUpper = "SENT")
+        Dim folderName As String = System.IO.Path.GetFileName(CurrentFolderPath).Trim()
+        Dim isInboxFolder As Boolean = String.Equals(folderName, "Inbox", StringComparison.OrdinalIgnoreCase)
+        Dim isSentFolder As Boolean = String.Equals(folderName, "Sent", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(folderName, "Sent Items", StringComparison.OrdinalIgnoreCase)
 
         If (gRefreshInbox AndAlso isInboxFolder) OrElse (gRefreshSent AndAlso isSentFolder) Then
-
             Include = True
-
         ElseIf gRefreshOtherFolders Then
-
             Include = Collection_of_folders_to_exclude_is_empty OrElse (Collection_of_folders_to_exclude.IndexOf(CurrentFolderPath) = -1)
-
         Else
             Include = False
         End If
 
         Dim folderItemCount As Integer = 0
-        Try
-            folderItemCount = Folder.Items.Count
-        Catch
-            folderItemCount = 0
-        End Try
 
         If Include Then
-            Me.Dispatcher.BeginInvoke(
-            New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
-            New Object() {"Including " & CurrentFolderPath.TrimStart("\")})
+            Try
+                folderItemCount = Folder.Items.Count
+            Catch
+                folderItemCount = 0
+            End Try
+
             lTotalEMailsToBeReviewed += folderItemCount
-        Else
-            Me.Dispatcher.BeginInvoke(
-            New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
-            New Object() {"Excluding " & CurrentFolderPath.TrimStart("\")})
         End If
 
         lTotalEMails += folderItemCount
+
+        Dim msg As String
+        If Include Then
+            msg = "Including " & CurrentFolderPath.TrimStart("\"c)
+        Else
+            msg = "Excluding " & CurrentFolderPath.TrimStart("\"c)
+        End If
+
+        ' I tried throttling the UI updates below, but there was no noticeable performance gain
+        Me.Dispatcher.BeginInvoke(
+                New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
+                New Object() {msg})
 
     End Sub
 
@@ -1820,6 +1954,23 @@ CleanExit:
             sb.Append(hashBytes(i).ToString("X2", System.Globalization.CultureInfo.InvariantCulture))
         Next
         Return sb.ToString()
+    End Function
+
+    Private Function IsAMailboxBoxPath(ByVal s As String) As Boolean
+
+        ' a mailbox path has exactly two backslashes - in the first two characters
+        ' all other paths have more than two backslashes
+
+        If String.IsNullOrEmpty(s) Then Return False
+
+        For i As Integer = 2 To s.Length - 1
+            If s.Chars(i) = "\"c Then
+                Return False
+            End If
+        Next
+
+        Return True
+
     End Function
 
     Private Sub ProcessAllFolders(ByVal MSOutlookDrivenEvent As Boolean, ByVal QuickRefresh As Boolean)
@@ -1872,21 +2023,30 @@ CleanExit:
         'Step 2 add all info except trailers 
         '***************************************************************************
 
-        ' add all other folders first
+        ' below we will add all other folders first, and inbox and sent items second
+        ' this is done as the add of the other folders can be long running, while the inbox and sent items are quick
+        ' in this way any emails sent or received during the long running other folder process will be picked up in the inbox and sent item processing that comes after
 
         Dim PopulateFoldersUsingPreviousData As Boolean = True
 
+        Dim CurrentMailBoxName As String = ""
+
         If gRefreshOtherFolders AndAlso (Not MSOutlookDrivenEvent) AndAlso (Not QuickRefresh) Then
 
-            For x As Int16 = 0 To gFolderTableIndex
+            For x As Integer = 0 To gFolderTableIndex
 
                 If gCancelRefresh Then Exit For
 
+                If IsAMailboxBoxPath(gFolderTable(x).FolderPath) Then
+                    CurrentMailBoxName = GetMailboxNameFromFolderPath(gFolderTable(x).FolderPath, gFolderTable(x).StoreID)
+                End If
+
                 If (strCollection.IndexOf(gFolderNamesTable(x)) = -1) OrElse Collection_of_folders_to_exclude_is_empty Then
+
                     If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
                         Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
                         Try
-                            ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                            ProcessAllMailItemsInAFolder(x, folder, CurrentMailBoxName, iProgressBarValue)
                         Finally
                             If folder IsNot Nothing Then
                                 System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
@@ -1931,19 +2091,22 @@ CleanExit:
 
         End If
 
-        ' add sent items  
-        If gRefreshSent Then
+        If gRefreshInbox OrElse gRefreshSent Then
 
             For x As Int16 = 0 To gFolderTableIndex
 
                 If gCancelRefresh Then Exit For
 
-                If gSentFolderIndices.Contains(x) AndAlso (gSentFolderIndices.Count > 0) Then
+                If IsAMailboxBoxPath(gFolderTable(x).FolderPath) Then
+                    CurrentMailBoxName = GetMailboxNameFromFolderPath(gFolderTable(x).FolderPath, gFolderTable(x).StoreID)
+                End If
+
+                If gRefreshSent AndAlso (gInboxFolderIndices.Count > 0) AndAlso gInboxFolderIndices.Contains(x) Then
 
                     If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
                         Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
                         Try
-                            ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                            ProcessAllMailItemsInAFolder(x, folder, CurrentMailBoxName, iProgressBarValue)
                         Finally
                             If folder IsNot Nothing Then
                                 System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
@@ -1954,24 +2117,12 @@ CleanExit:
 
                 End If
 
-            Next
-
-        End If
-
-        ' add inboxes 
-
-        If gRefreshInbox Then
-
-            For x As Int16 = 0 To gFolderTableIndex
-
-                If gCancelRefresh Then Exit For
-
-                If gInboxFolderIndices.Contains(x) AndAlso (gInboxFolderIndices.Count > 0) Then
+                If gRefreshSent AndAlso (gSentFolderIndices.Count > 0) AndAlso gSentFolderIndices.Contains(x) Then
 
                     If gFolderTable(x).DefaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
                         Dim folder As Microsoft.Office.Interop.Outlook.MAPIFolder = oNS.GetFolderFromID(gFolderTable(x).EntryID, gFolderTable(x).StoreID)
                         Try
-                            ProcessAllMailItemsInAFolder(x, folder, iProgressBarValue)
+                            ProcessAllMailItemsInAFolder(x, folder, CurrentMailBoxName, iProgressBarValue)
                         Finally
                             If folder IsNot Nothing Then
                                 System.Runtime.InteropServices.Marshal.ReleaseComObject(folder)
@@ -2047,13 +2198,19 @@ CleanExit:
 
             If addTrailerFlag Then
 
-                Dim body As String = gEmailTable(x).sBody
+                ' the trailer is taken from the body of an email
+                ' where the email is a standalone email, the trailer is taken from the top of the email, starting from the Subject line
+                ' where the email is part of a chain of emails, the trailer starts from the Subject Line of the originating email in the email chain.
+                ' the trailer field is then used to link emails together in chains
 
-                If String.IsNullOrEmpty(body) Then
+                If String.IsNullOrEmpty(gEmailTable(x).sBody) Then
                     gEmailTable(x).sTrailer = ""
                 Else
-                    gEmailTable(x).sTrailer = body
+                    gEmailTable(x).sTrailer = gEmailTable(x).sBody
                 End If
+
+                ' once the trailer is populated below the body is no longer needed and is cleared to save memory
+                gEmailTable(x).sBody = Nothing
 
                 gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Trim()
 
@@ -2063,14 +2220,11 @@ CleanExit:
 
                 Else
 
-                    lLastIndex = gEmailTable(x).sTrailer.LastIndexOf("Subject:")
+                    Dim trailer As String = gEmailTable(x).sTrailer
+
+                    lLastIndex = trailer.LastIndexOf("Subject:", StringComparison.OrdinalIgnoreCase)
                     If lLastIndex > -1 Then
-                        gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(0, lLastIndex + 8)
-                    Else
-                        lLastIndex = gEmailTable(x).sTrailer.LastIndexOf("SUBJECT:")
-                        If lLastIndex > -1 Then
-                            gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(0, lLastIndex + 8)
-                        End If
+                        gEmailTable(x).sTrailer = trailer.Substring(lLastIndex + 8)
                     End If
 
                     ' Remove stuff so the email chains can be properly linked together
@@ -2093,15 +2247,15 @@ CleanExit:
                         gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Replace(lHoldSubject, "")
                     End If
 
-                    ' Only work with the first 240 chars to avoid endless growth at the end
-                    If gEmailTable(x).sTrailer.Length > 240 Then
-                        gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(240)
+                    ' Only work with the first 256 characters of the trailer to avoid storing more information than is needed;
+                    ' 256 characters was chosen as a reasonable compromise between uniqueness and performance/storage
+                    If gEmailTable(x).sTrailer.Length > 256 Then
+                        gEmailTable(x).sTrailer = gEmailTable(x).sTrailer.Remove(256)
                     End If
 
-                End If
-
-                If gEmailTable(x).sTrailer.Length > 16 Then
+                    ' compute a hash of the trailer for storage in the email table
                     gEmailTable(x).sTrailer = ComputeTrailerHash(gEmailTable(x).sTrailer)
+
                 End If
 
             End If
@@ -2120,7 +2274,7 @@ CleanExit:
 EarlyExit:
 
         'sw.Stop()
-        'MsgBox(sw.ElapsedMilliseconds)
+        'Console.WriteLine(sw.ElapsedMilliseconds)
 
     End Sub
 
@@ -2134,6 +2288,7 @@ EarlyExit:
 
     Private Sub ProcessAllMailItemsInAFolder(ByVal originalFolder As Int16,
                              ByVal folder As Microsoft.Office.Interop.Outlook.MAPIFolder,
+                             ByVal mailboxName As String,
                              ByRef iProgressBarValue As Double)
 
         If gCancelRefresh Then Exit Sub
@@ -2147,98 +2302,96 @@ EarlyExit:
         End Try
 
         Try
-            Dim sortField As String = If(lWhenSent, "[SentOn]", "[ReceivedTime]")
+
             Try
+                Dim sortField As String = If(lWhenSent, "[SentOn]", "[ReceivedTime]")
                 items.Sort(sortField, True)
             Catch
             End Try
 
-            ' Resolve mailbox name once per folder
-            Dim mailboxName As String = GetMailboxNameFromFolderPath(folder.FolderPath, folder.StoreID)
-
-            ' Track distinct mailbox names
-            If Not String.IsNullOrEmpty(mailboxName) Then
-                If Not _mailboxNames.Contains(mailboxName) Then
-                    _mailboxNames.Add(mailboxName)
-                End If
-            End If
-
             Dim itemCount As Integer = items.Count ' set the number of items in the folder as a variable (to avoid having to access it repeatably in the line below)
+            If itemCount = 0 Then Exit Sub
 
             ' Ensure there will be enough space in the email table when adding a new items
             If (gEmailTableIndex + itemCount) >= UBound(gEmailTable) Then
                 ReDim Preserve gEmailTable(gEmailTableIndex + Math.Max(gEmailTableGrowth, itemCount))
             End If
 
-            For i As Integer = 1 To itemCount
+            For Each item As Object In items   ' resting here change to for each item as object in items
 
                 If gCancelRefresh Then Exit For
 
-                Dim obj As Object
+                Dim mail As Microsoft.Office.Interop.Outlook.MailItem = Nothing
+
                 Try
-                    obj = items(i)
-                Catch
-                    Continue For
-                End Try
 
-                Dim mail As Microsoft.Office.Interop.Outlook.MailItem = TryCast(obj, Microsoft.Office.Interop.Outlook.MailItem)
-                If mail Is Nothing Then
-                    Continue For
-                End If
+                    mail = TryCast(item, Microsoft.Office.Interop.Outlook.MailItem)
+                    If mail Is Nothing Then Continue For
 
-                Dim emailDetail As StructureOfEmailDetails = lBlankEMailDetailRecord
+                    Dim emailDetail As StructureOfEmailDetails = lBlankEMailDetailRecord
 
-                Dim friendlyFrom As String = mail.SenderEmailAddress
+                    Dim friendlyFrom As String = mail.SenderEmailAddress
 
-                ' Resolve a friendly "From" address (gets around a quirk in Outlook / Exchange for messages coming from Exchange or certain connected accounts)
-                Try
-                    If mail.Sender IsNot Nothing Then
-                        ' If this is already an SMTP address, use it directly
-                        If String.Equals(mail.SenderEmailType, "SMTP", StringComparison.OrdinalIgnoreCase) Then
-                            ' all good
-                        Else
-                            ' Try to resolve to an Exchange user and use PrimarySmtpAddress
-                            Dim exUser As Microsoft.Office.Interop.Outlook.ExchangeUser =
-                                TryCast(mail.Sender.GetExchangeUser(), Microsoft.Office.Interop.Outlook.ExchangeUser)
+                    ' Resolve a friendly "From" address (gets around a quirk in Outlook / Exchange for messages coming from Exchange or certain connected accounts)
+                    Try
+                        If mail.Sender IsNot Nothing Then
+                            ' If this is already an SMTP address, use it directly
+                            If String.Equals(mail.SenderEmailType, "SMTP", StringComparison.OrdinalIgnoreCase) Then
+                                ' all good
+                            Else
+                                ' Try to resolve to an Exchange user and use PrimarySmtpAddress
+                                Dim exUser As Microsoft.Office.Interop.Outlook.ExchangeUser =
+                                    TryCast(mail.Sender.GetExchangeUser(), Microsoft.Office.Interop.Outlook.ExchangeUser)
 
-                            If exUser IsNot Nothing AndAlso Not String.IsNullOrEmpty(exUser.PrimarySmtpAddress) Then
-                                friendlyFrom = exUser.PrimarySmtpAddress
+                                If exUser IsNot Nothing AndAlso Not String.IsNullOrEmpty(exUser.PrimarySmtpAddress) Then
+                                    friendlyFrom = exUser.PrimarySmtpAddress
 
+                                End If
                             End If
+
                         End If
+                    Catch
+                    End Try
 
+                    With emailDetail
+
+                        .sOriginalFolderReferenceNumber = originalFolder
+                        .sOutlookEntryID = mail.EntryID
+                        .sSubject = CleanUpSubjectLine(If(mail.Subject, String.Empty))
+                        .sTo = If(mail.To, String.Empty)
+                        .sFrom = If(friendlyFrom, String.Empty)
+                        .sDateAndTime = If(lWhenSent, mail.SentOn, mail.ReceivedTime)
+                        .sUnRead = If(mail.UnRead, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
+                        .sMailBoxName = mailboxName
+
+                        ' Always capture body here; it may be trimmed/hashed later
+                        .sBody = If(mail.Body, String.Empty)
+
+                    End With
+
+                    gEmailTable(gEmailTableIndex) = emailDetail
+                    gEmailTableIndex += 1
+
+                    lProgressBareRefreshingThresholdCounter += lProgressBarWeightingForEmailReviews
+                    If lProgressBareRefreshingThresholdCounter > gThresholdForReportingProgressOnTheProgressBar Then
+                        iProgressBarValue += lProgressBareRefreshingThresholdCounter
+                        lProgressBareRefreshingThresholdCounter = 0
+                        Me.Dispatcher.BeginInvoke(
+                        New SetProgressBarValueCallback(AddressOf SetProgressBarValue),
+                        New Object() {iProgressBarValue})
                     End If
+
                 Catch
+                Finally
+                    If mail IsNot Nothing Then
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(mail)
+                        mail = Nothing
+                    End If
+                    item = Nothing
                 End Try
-
-                With emailDetail
-
-                    .sOriginalFolderReferenceNumber = originalFolder
-                    .sOutlookEntryID = mail.EntryID
-                    .sSubject = CleanUpSubjectLine(If(mail.Subject, String.Empty))
-                    .sTo = If(mail.To, String.Empty)
-                    .sFrom = If(friendlyFrom, String.Empty)
-                    .sDateAndTime = If(lWhenSent, mail.SentOn, mail.ReceivedTime)
-                    .sUnRead = If(mail.UnRead, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
-                    .sMailBoxName = mailboxName
-
-                    ' Always capture body here; it may be trimmed/hashed later
-                    .sBody = If(mail.Body, String.Empty)
-
-                End With
-
-                gEmailTable(gEmailTableIndex) = emailDetail
-                gEmailTableIndex += 1
-
-                lProgressBareRefreshingThresholdCounter += lProgressBarWeightingForEmailReviews
-                If lProgressBareRefreshingThresholdCounter > gThresholdForReportingProgressOnTheProgressBar Then
-                    iProgressBarValue += lProgressBareRefreshingThresholdCounter
-                    lProgressBareRefreshingThresholdCounter = 0
-                    Me.Dispatcher.BeginInvoke(
-                    New SetProgressBarValueCallback(AddressOf SetProgressBarValue),
-                    New Object() {iProgressBarValue})
-                End If
             Next
+
+        Catch
         Finally
             If items IsNot Nothing Then
                 System.Runtime.InteropServices.Marshal.ReleaseComObject(items)
@@ -2300,8 +2453,15 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
+            Call ShowMessageBox("FileFriendly - Establish Recommendations Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -2334,8 +2494,15 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
+            Call ShowMessageBox("FileFriendly - Establish Ratings Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -2408,8 +2575,16 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+            Call ShowMessageBox("FileFriendly - Establish Ratings Scoring Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         End Try
 
 
@@ -2624,8 +2799,15 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
+            Call ShowMessageBox("FileFriendly - Update List View Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -2676,15 +2858,13 @@ EarlyExit:
         'ignore double click if it happened within the bounds of the scroll bar
 
         If ListView1.ActualWidth - e.GetPosition(Me.ListView1).X > 15 Then
-            ' Keep existing behavior: update details and select whole chain
-            UpdateDetails()
-            RemoveHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
-            SelectAllMembersOfAnEmailChain()
-            AddHandler ListView1.SelectionChanged, AddressOf ListView1_SelectionChanged
 
-            ' New behavior: open the e‑mail associated with the clicked entryId
+            ' open the e‑mail associated with the clicked entryId
             ' (matches what the "Open" menu/command does, but without asking for confirmation)
-            OpenAnEmail()
+            If ConfirmActionMessage("Open") Then
+                OpenAnEmail()
+            End If
+
         End If
 
     End Sub
@@ -2710,7 +2890,6 @@ EarlyExit:
     End Sub
 
     Private Sub ListView1_SelectionChanged(ByVal sender As Object, ByVal e As System.Windows.Controls.SelectionChangedEventArgs) Handles ListView1.SelectionChanged
-
 
         If gSuppressUpdatesToDetailBox Then Exit Sub
 
@@ -3246,20 +3425,17 @@ EarlyExit:
                 Me.tbDetailDateTime.Text = Format(.DateTime, gPreferredDateFormat & " " & gPreferredTimeFormat)
                 Me.tbDetailOrginal.Text = gFolderNamesTable(.OriginalFolder).TrimStart("\"c)
 
-                ' Only offer pick folders when:
-                ' 1) Scan Filed Emails is enabled (gRefreshOtherFolders = True), AND
-                ' 2) There is a valid recommended folder (RecommendedFolderFinal >= 0)
+                ' Only offer pick folders when there is a valid recommended folder (RecommendedFolderFinal >= 0)
                 Dim hasValidRecommendation As Boolean = (.RecommendedFolderFinal >= 0)
-                Dim shouldOfferPicks As Boolean = gRefreshOtherFolders AndAlso hasValidRecommendation
 
-                If shouldOfferPicks Then
+                If hasValidRecommendation Then
                     Me.tbDetailTarget1.Text = gFolderNamesTable(.RecommendedFolderFinal)
                 Else
                     Me.tbDetailTarget1.Text = ""
                 End If
 
                 If gPickAFolderWindow IsNot Nothing Then
-                    If shouldOfferPicks Then
+                    If hasValidRecommendation Then
                         gPickAFolderWindow.intRecommendation1 = .RecommendedFolder1
                         gPickAFolderWindow.intRecommendation2 = .RecommendedFolder2
                         gPickAFolderWindow.intRecommendation3 = .RecommendedFolder3
@@ -3360,7 +3536,6 @@ EarlyExit:
         End If
         Return folderPath.Trim("\"c)
     End Function
-
 
     Public Sub SafelyActivateMenu()
         Call Dispatcher.BeginInvoke(ActivateMenu)
@@ -3573,11 +3748,16 @@ EarlyExit:
 
                 If errorOccurred Then
 
-                    If My.Settings.SoundAlert Then Beep()
-                    MsgBox("FileFriendly could not update the read/unread state for all selected items." & vbCrLf & vbCrLf &
-                           "Some items may have been successfully toggled, but not all.",
-                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Toggle Read/Unread Partially Failed")
+                    Call ShowMessageBox("Toggle Read/Unread Failed",
+                         CustomDialog.CustomDialogIcons.Information,
+                         "FileFriendly could not update the read/unread state for all selected items.",
+                         "Some items may have been successfully toggled, but not all.",
+                         "ToggleReadStateForSelectedItem()",
+                         "",
+                         CustomDialog.CustomDialogIcons.None,
+                         CustomDialog.CustomDialogButtons.OK,
+                         CustomDialog.CustomDialogResults.OK)
+
                 End If
 
             Finally
@@ -3586,10 +3766,16 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.Message,
-                   MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                   "FileFriendly - Toggle Read/Unread Failed")
+            Call ShowMessageBox("FileFriendly - Toggle Read/Unread Failed",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "FileFriendly could not update the read/unread state for all selected items.",
+                 "Some items may have been successfully toggled, but not all.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         End Try
 
         ' Always restore cursor
@@ -3642,18 +3828,20 @@ EarlyExit:
             End If
 
             If ActionLogIndex > 0 Then
+
                 If ShowMessageBox("FileFriendly",
-                                          CustomDialog.CustomDialogIcons.Question,
-                                          "Please note:",
-                                          "If you refresh you will no longer be able to undo the changes you have made up until now." & vbCrLf & vbCrLf &
-                                          "Would you still like to refresh?",
-                                          "You will however be able to undo future changes.",
-                                          "",
-                                          CustomDialog.CustomDialogIcons.None,
-                                          CustomDialog.CustomDialogButtons.YesNo,
-                                          CustomDialog.CustomDialogResults.Yes) = CustomDialog.CustomDialogResults.No Then
+                       CustomDialog.CustomDialogIcons.Question,
+                       "Please note:",
+                       "If you refresh you will no longer be able to undo the changes you have made up until now." & vbCrLf & vbCrLf &
+                       "Would you still like to refresh?",
+                       "You will however be able to undo future changes.",
+                       "",
+                       CustomDialog.CustomDialogIcons.None,
+                       CustomDialog.CustomDialogButtons.YesNo,
+                       CustomDialog.CustomDialogResults.Yes) = CustomDialog.CustomDialogResults.No Then
                     Exit Sub
                 End If
+
             End If
 
             MenuOptionEnabled("Undo", False)
@@ -3674,15 +3862,17 @@ EarlyExit:
                     MenuActions.Foreground = gForegroundColourEnabled
                     RefreshGrid(False, False, QuickRefresh)
                 Else
-                    ShowMessageBox("FileFriendly",
-                                           CustomDialog.CustomDialogIcons.Warning,
-                                           "Note!",
-                                           "Inbox, sent items and other folders shouldn`t all be unchecked at the same time.",
-                                           "If you unchecked all three then there will be nothing to review!",
-                                           "",
-                                           CustomDialog.CustomDialogIcons.None,
-                                           CustomDialog.CustomDialogButtons.OK,
-                                           CustomDialog.CustomDialogResults.OK)
+
+                    Call ShowMessageBox("FileFriendly",
+                         CustomDialog.CustomDialogIcons.Warning,
+                         "Note!",
+                         "Inbox, sent items and other folders shouldn`t all be unchecked at the same time.",
+                         "If you unchecked all three then there will be nothing to review!",
+                         "",
+                         CustomDialog.CustomDialogIcons.None,
+                         CustomDialog.CustomDialogButtons.OK,
+                         CustomDialog.CustomDialogResults.OK)
+
                     ClearGrid()
                 End If
 
@@ -3733,9 +3923,9 @@ EarlyExit:
                     gRefreshOtherFolders = My.Settings.ScanAll
                     gAutoChainSelect = My.Settings.AutoChainSelect
 
-                    If gARefreshIsRequired Then
-                        RefreshGrid(False, False, False)
-                    End If
+                    'If gARefreshIsRequired Then
+                    '    RefreshGrid(False, False, True)
+                    'End If
 
                 Case Is = "Undo"
 
@@ -3800,8 +3990,15 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+            Call ShowMessageBox("FileFriendly - Perform Action Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -3833,16 +4030,15 @@ EarlyExit:
 
         Else
 
-            ShowMessageBox("FileFriendly",
-                           CustomDialog.CustomDialogIcons.Warning,
-                           "Note!",
-                           "Inbox, sent items and other folders shouldn`t all be unchecked at the same time.",
-                           "If you unchecked all three then there will be nothing to review!",
-                           "",
-                           CustomDialog.CustomDialogIcons.None,
-                           CustomDialog.CustomDialogButtons.OK,
-                           CustomDialog.CustomDialogResults.OK)
-
+            Call ShowMessageBox("FileFriendly",
+                     CustomDialog.CustomDialogIcons.Warning,
+                     "Note!",
+                     "Inbox, sent items and other folders shouldn`t all be unchecked at the same time.",
+                     "If you unchecked all three then there will be nothing to review!",
+                     "",
+                     CustomDialog.CustomDialogIcons.None,
+                     CustomDialog.CustomDialogButtons.OK,
+                     CustomDialog.CustomDialogResults.OK)
 
             If Me.MenuViewInbox.IsEnabled Then
                 Me.MenuViewInbox.Foreground = gForegroundColourAlert
@@ -3881,15 +4077,15 @@ EarlyExit:
 
         Else
 
-            ShowMessageBox("FileFriendly",
-                   CustomDialog.CustomDialogIcons.Warning,
-                   "Note!",
-                   "Read and Unread shouldn`t both be unchecked at the same time.",
-                   "If you unchecked them both then there will be nothing to review!",
-                   "",
-                   CustomDialog.CustomDialogIcons.None,
-                   CustomDialog.CustomDialogButtons.OK,
-                   CustomDialog.CustomDialogResults.OK)
+            Call ShowMessageBox("FileFriendly",
+                     CustomDialog.CustomDialogIcons.Warning,
+                     "Note!",
+                     "Read and Unread shouldn`t both be unchecked at the same time.",
+                     "If you unchecked them both then there will be nothing to review!",
+                     "",
+                     CustomDialog.CustomDialogIcons.None,
+                     CustomDialog.CustomDialogButtons.OK,
+                     CustomDialog.CustomDialogResults.OK)
 
             Me.MenuViewRead.Foreground = gForegroundColourAlert
             Me.MenuViewUnRead.Foreground = gForegroundColourAlert
@@ -3960,21 +4156,34 @@ EarlyExit:
                         ' Loop will retry with fresh session
                         mailItem = Nothing
                     Else
-                        If My.Settings.SoundAlert Then Beep()
-                        MsgBox("FileFriendly could not open the selected e-mail in Outlook." & vbCrLf & vbCrLf &
-                               "Details: " & comEx.Message,
-                               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                               "FileFriendly - Open Fail")
+
+                        Call ShowMessageBox("FileFriendly - Open An E-mail Fail",
+                             CustomDialog.CustomDialogIcons.Stop,
+                             "FileFriendly could not open the selected e-mail",
+                             "FileFriendly could not open the selected e-mail in Outlook. (1)",
+                             comEx.TargetSite.Name & " - " & comEx.ToString,
+                             "",
+                             CustomDialog.CustomDialogIcons.None,
+                             CustomDialog.CustomDialogButtons.OK,
+                             CustomDialog.CustomDialogResults.OK)
+
                         Exit Try
                     End If
 
                 Catch ex As Exception
-                    If My.Settings.SoundAlert Then Beep()
-                    MsgBox("FileFriendly could not open the selected e-mail in Outlook." & vbCrLf & vbCrLf &
-                           "Details: " & ex.Message,
-                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Open Fail")
+
+                    Call ShowMessageBox("FileFriendly - Open An E-mail Fail",
+                         CustomDialog.CustomDialogIcons.Stop,
+                         "FileFriendly could not open the selected e-mail",
+                         "FileFriendly could not open the selected e-mail in Outlook. (2)",
+                         ex.TargetSite.Name & " - " & ex.ToString,
+                         "",
+                         CustomDialog.CustomDialogIcons.None,
+                         CustomDialog.CustomDialogButtons.OK,
+                         CustomDialog.CustomDialogResults.OK)
+
                     Exit Try
+
                 End Try
 
                 attempt += 1
@@ -3998,11 +4207,17 @@ EarlyExit:
             End If
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.Message & vbCrLf & vbCrLf &
-                   "If Outlook is not running please start it and try again.",
-                   MsgBoxStyle.Exclamation,
-                   "FileFriendly - Open Fail")
+
+            Call ShowMessageBox("FileFriendly - Open An E-mail Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error." & vbCrLf & "If Outlook is not running please start it and try again",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         Finally
             SetMousePointer(Cursors.Arrow)
         End Try
@@ -4237,20 +4452,32 @@ EarlyExit:
                         mail = Nothing
                         targetFolder = Nothing
                     Else
-                        If My.Settings.SoundAlert Then Beep()
-                        MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
-                               "Details: " & comEx.Message,
-                               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                               "FileFriendly - Outlook Error")
+
+                        Call ShowMessageBox("FileFriendly - Outlook Error",
+                             CustomDialog.CustomDialogIcons.Information,
+                             "Unexpected Error!",
+                             "FileFriendly has encountered an unexpected error." & vbCrLf & "FileFriendly could not complete the requested action in Outlook. (1)",
+                             comEx.TargetSite.Name & " - " & comEx.ToString,
+                             "",
+                             CustomDialog.CustomDialogIcons.None,
+                             CustomDialog.CustomDialogButtons.OK,
+                             CustomDialog.CustomDialogResults.OK)
+
                         Return ""
                     End If
 
                 Catch ex As Exception
-                    If My.Settings.SoundAlert Then Beep()
-                    MsgBox("FileFriendly could not complete the requested action in Outlook." & vbCrLf & vbCrLf &
-                           "Details: " & ex.Message,
-                           MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Outlook Error")
+
+                    Call ShowMessageBox("FileFriendly - Outlook Error",
+                         CustomDialog.CustomDialogIcons.Information,
+                         "Unexpected Error!",
+                         "FileFriendly has encountered an unexpected error." & vbCrLf & "FileFriendly could not complete the requested action in Outlook. (2)",
+                         ex.TargetSite.Name & " - " & ex.ToString,
+                         "",
+                         CustomDialog.CustomDialogIcons.None,
+                         CustomDialog.CustomDialogButtons.OK,
+                         CustomDialog.CustomDialogResults.OK)
+
                     Return ""
                 End Try
 
@@ -4282,10 +4509,17 @@ EarlyExit:
             oMovedEmail = Nothing
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.Message,
-               MsgBoxStyle.Exclamation Or MsgBoxStyle.OkOnly,
-               "FileFriendly - Outlook Error")
+
+            Call ShowMessageBox("FileFriendly - Outlook Error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
             ReturnCode = ""
         Finally
             SetMousePointer(Cursors.Arrow)
@@ -4450,7 +4684,6 @@ EarlyExit:
             End If
 
         Catch ex As Exception
-            ' MsgBox(ex.ToString) suppress error message here
         End Try
 
     End Sub
@@ -4471,12 +4704,14 @@ EarlyExit:
         Try
 
             If ListView1.SelectedItems.Count > ActionLogMaxSubEntries Then
+
                 Call ShowMessageBox("FileFriendly - Opps",
-                               CustomDialog.CustomDialogIcons.Warning,
-                               "Opps",
-                               "You can only action " & ActionLogMaxSubEntries & " e-mails at a time.",
-                               "You selected " & ListView1.SelectedItems.Count & " e-mails." & vbCrLf & "Please select fewer than " & ActionLogMaxSubEntries & " e-mails and redo your request.",
-                              , , , CustomDialog.CustomDialogResults.OK)
+                         CustomDialog.CustomDialogIcons.Warning,
+                         "Opps",
+                         "You can only action " & ActionLogMaxSubEntries & " e-mails at a time.",
+                         "You selected " & ListView1.SelectedItems.Count & " e-mails." & vbCrLf & "Please select fewer than " & ActionLogMaxSubEntries & " e-mails and redo your request.",
+                        , , , CustomDialog.CustomDialogResults.OK)
+
                 Exit Try
             End If
 
@@ -4652,12 +4887,11 @@ EarlyExit:
                 If TooManyActionsMessageDisplayed Then
                 Else
                     TooManyActionsMessageDisplayed = True
+
                     Call ShowMessageBox("FileFriendly - Opps",
-                     CustomDialog.CustomDialogIcons.Stop,
-                     "Opps",
-                     "You've performed " & ActionLogMaxEntries & " actions, and that's exactly the limit I can remember!",
-                     "It looks like your on a roll so you can keep on going, but you will only be able to undo your most recent " & ActionLogMaxEntries & " actions from now on.",
+                        "It looks like your on a roll so you can keep on going, but you will only be able to undo your most recent " & ActionLogMaxEntries & " actions from now on.",
                       , , , CustomDialog.CustomDialogResults.OK)
+
                 End If
 
                 'clear action left over action log entries
@@ -4686,8 +4920,15 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.TargetSite.Name & " - " & ex.ToString)
+            Call ShowMessageBox("FileFriendly",
+                     CustomDialog.CustomDialogIcons.Stop,
+                     "Unexpected Error!",
+                     "FileFriendly has encountered an unexpected error.",
+                     ex.TargetSite.Name & " - " & ex.ToString,
+                     "",
+                     CustomDialog.CustomDialogIcons.None,
+                     CustomDialog.CustomDialogButtons.OK,
+                     CustomDialog.CustomDialogResults.OK)
 
         End Try
 
@@ -4914,17 +5155,21 @@ EarlyExit:
                 Try
                     Dim startInfo As New ProcessStartInfo("outlook.exe")
                     Process.Start(startInfo)
+
                 Catch exStart As Exception
 
                     ClearOutlookStartingMessage()
 
-                    If My.Settings.SoundAlert Then Beep()
+                    Call ShowMessageBox("FileFriendly - Outlook start fail",
+                        CustomDialog.CustomDialogIcons.Stop,
+                        "Unexpected Error!",
+                        "The requested action cannot be completed until Outlook is available.",
+                        exStart.TargetSite.Name & " - " & exStart.ToString,
+                        "",
+                        CustomDialog.CustomDialogIcons.None,
+                        CustomDialog.CustomDialogButtons.OK,
+                        CustomDialog.CustomDialogResults.OK)
 
-                    MsgBox("FileFriendly cannot start Microsoft Outlook." & vbCrLf & vbCrLf &
-                           "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
-                           "Details: " & exStart.Message,
-                           MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
-                           "FileFriendly - Outlook is not Available")
                     Return False
 
                 End Try
@@ -4962,13 +5207,16 @@ EarlyExit:
                 oApp = CType(CreateObject("Outlook.Application"), Microsoft.Office.Interop.Outlook.Application)
             Catch exCreate As Exception
 
-                If My.Settings.SoundAlert Then Beep()
+                Call ShowMessageBox("FileFriendly - Outlook error",
+                    CustomDialog.CustomDialogIcons.Stop,
+                    "Unexpected Error!",
+                    "FileFriendly has encountered an unexpected error." & vbCrLf & "CreateObject('Outlook.Application')",
+                    exCreate.TargetSite.Name & " - " & exCreate.ToString,
+                    "",
+                    CustomDialog.CustomDialogIcons.None,
+                    CustomDialog.CustomDialogButtons.OK,
+                    CustomDialog.CustomDialogResults.OK)
 
-                MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
-                       "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
-                       "Details: " & exCreate.Message,
-                       MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
-                       "FileFriendly - Outlook Not Available")
                 oApp = Nothing
                 oNS = Nothing
                 Return False
@@ -4979,13 +5227,15 @@ EarlyExit:
                 Dim dummy As Integer = oNS.Folders.Count
             Catch exNs As System.Exception
 
-                If My.Settings.SoundAlert Then Beep()
-
-                MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
-                       "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
-                       "Details: " & exNs.Message,
-                       MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
-                       "FileFriendly - Outlook Not Available")
+                Call ShowMessageBox("FileFriendly - Outlook error",
+                    CustomDialog.CustomDialogIcons.Stop,
+                    "Unexpected Error!",
+                    "FileFriendly has encountered an unexpected error." & vbCrLf & "oApp.GetNamespace('MAPI').",
+                    exNs.TargetSite.Name & " - " & exNs.ToString,
+                    "",
+                    CustomDialog.CustomDialogIcons.None,
+                    CustomDialog.CustomDialogButtons.OK,
+                    CustomDialog.CustomDialogResults.OK)
                 oNS = Nothing
                 oApp = Nothing
                 Return False
@@ -4995,13 +5245,16 @@ EarlyExit:
 
         Catch ex As Exception
 
-            If My.Settings.SoundAlert Then Beep()
+            Call ShowMessageBox("FileFriendly - Outlook error",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.TargetSite.Name & " - " & ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
 
-            MsgBox("FileFriendly cannot access Microsoft Outlook." & vbCrLf & vbCrLf &
-                   "The requested action cannot be completed until Outlook is available." & vbCrLf & vbCrLf &
-                   "Details: " & ex.Message,
-                   MsgBoxStyle.Critical Or MsgBoxStyle.OkOnly,
-                   "FileFriendly - Outlook Not Available")
             oNS = Nothing
             oApp = Nothing
             Return False
@@ -5549,8 +5802,17 @@ EarlyExit:
             ApplyFilter()
 
         Catch ex As Exception
-            If My.Settings.SoundAlert Then Beep()
-            MsgBox(ex.ToString)
+
+            Call ShowMessageBox("FileFriendly",
+                 CustomDialog.CustomDialogIcons.Stop,
+                 "Unexpected Error!",
+                 "FileFriendly has encountered an unexpected error.",
+                 ex.ToString,
+                 "",
+                 CustomDialog.CustomDialogIcons.None,
+                 CustomDialog.CustomDialogButtons.OK,
+                 CustomDialog.CustomDialogResults.OK)
+
         End Try
 
         SetMousePointer(Cursors.Arrow)
@@ -5604,6 +5866,20 @@ EarlyExit:
     Private gRefreshGridScheduled As Boolean = False
     Private ReadOnly gRefreshGridLock As New Object()
 
+    ' Thread-safe helpers for gSuppressEventForEntryIds / _suspensionTimers.
+    Private Function GetSuppressedEventCount() As Integer
+        SyncLock gSuppressEventLock
+            Return gSuppressEventForEntryIds.Count
+        End SyncLock
+    End Function
+
+    Private Function IsEntryIdSuppressed(ByVal entryId As String) As Boolean
+        If String.IsNullOrEmpty(entryId) Then Return False
+        SyncLock gSuppressEventLock
+            Return gSuppressEventForEntryIds.Contains(entryId)
+        End SyncLock
+    End Function
+
     Private Sub ScheduleRefreshGrid(Optional ByVal selectionReason As SelectionRestoreReason = SelectionRestoreReason.Refresh)
 
         Dim shouldSchedule As Boolean = False
@@ -5617,6 +5893,18 @@ EarlyExit:
             End If
         End SyncLock
 
+        If Not shouldSchedule Then Return
+
+        BeginRefreshCursor()
+
+        If GetSuppressedEventCount() > 1 Then
+            SyncLock gRefreshGridLock
+                gRefreshGridScheduled = False
+            End SyncLock
+            EndRefreshCursor()
+            Return
+        End If
+
         If captureSelection Then
             Try
                 Me.Dispatcher.Invoke(Sub() StorePendingSelection(selectionReason))
@@ -5624,17 +5912,26 @@ EarlyExit:
             End Try
         End If
 
-        If shouldSchedule Then
-            Me.Dispatcher.BeginInvoke(New Action(Sub()
-                                                     Try
-                                                         RefreshGrid(False, True, False)
-                                                     Finally
-                                                         SyncLock gRefreshGridLock
-                                                             gRefreshGridScheduled = False
-                                                         End SyncLock
-                                                     End Try
-                                                 End Sub))
-        End If
+        Task.Run(Sub()
+                     Try
+                         Do
+                             If GetSuppressedEventCount() = 0 Then
+                                 Exit Do
+                             End If
+
+                             Thread.Sleep(200)
+                         Loop
+
+                         Me.Dispatcher.BeginInvoke(New Action(Sub()
+                                                                  RefreshGrid(False, True, False)
+                                                              End Sub))
+
+                     Finally
+                         ' IMPORTANT: don't clear gRefreshGridScheduled here; do it when refresh is truly finished.
+                         ' We leave it to FinalizeLoad() to allow gRefreshQueued logic to work correctly.
+                     End Try
+                 End Sub)
+
     End Sub
 
     Public Sub ClearMonitoringOfOutlookEvents()
@@ -6139,23 +6436,7 @@ EarlyExit:
 
             ' Accordingly, on removal the program will simply refresh the grid view to pick up any changes
 
-            ' Block duplicate requests for the same event
-            If _mainWindow.BlockDuplicateEventProcessing("Remove", "unknown") Then Return
-
-            _mainWindow.SetMousePointer(Cursors.Wait)
-
-            ' Block additional requests for other emails (if multiple emails are being actioned at the same time)
-            If _mainWindow.gSuppressEventForEntryIds.Count > 1 Then Return
-
-            ' Give Outlook some time to process any and all events by waiting until there are no more outlook events are being suppressed
-            While _mainWindow.gSuppressEventForEntryIds.Count > 0
-                Thread.Sleep(200)
-            End While
-
             _mainWindow.ScheduleRefreshGrid()
-
-            _mainWindow.SetMousePointer(Cursors.Arrow)
-
 
         End Sub
 
@@ -6180,19 +6461,7 @@ EarlyExit:
                 Dim action As String = If(mailItem.UnRead, "ReadGoingToUnread", "UnreadGoingToRead")
                 If _mainWindow.BlockDuplicateEventProcessing(action, entryId) Then Return
 
-                _mainWindow.SetMousePointer(Cursors.Wait)
-
-                ' Block additional requests for other emails (if multiple emails are being actioned at the same time)
-                If _mainWindow.gSuppressEventForEntryIds.Count > 1 Then Return
-
-                ' Give Outlook some time to process any and all events by waiting until there are no more outlook events are being suppressed
-                While _mainWindow.gSuppressEventForEntryIds.Count > 0
-                    Thread.Sleep(200)
-                End While
-
                 _mainWindow.ScheduleRefreshGrid()
-
-                _mainWindow.SetMousePointer(Cursors.Arrow)
 
             Catch ex As Exception
 

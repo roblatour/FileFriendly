@@ -132,7 +132,6 @@ Namespace TreeViewWithCheckBoxes
                 ReturnValues.Add(Root)
 
             Catch ex As Exception
-                'MsgBox(ex.ToString)
             End Try
 
             Return ReturnValues
@@ -331,7 +330,6 @@ Namespace TreeViewWithCheckBoxes
         '        Next
 
         '    Catch ex As Exception
-        '        MsgBox(ex.ToString)
         '    End Try
 
         'End Sub

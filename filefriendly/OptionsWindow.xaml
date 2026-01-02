@@ -40,7 +40,7 @@
                                     <RadioButton Name="rbWhenReceived" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=WhenReceived}" Margin="7.69,26.146,-3.076,0" Foreground="Brown" Height="19.994" VerticalAlignment="Top">When rece_ived</RadioButton>
                                 </Grid>
                             </GroupBox>
-                            <CheckBox Name="CheckBox1" Margin="15.38,100,9.997,0" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=AutoChainSelect}" Padding="4,0,0,0" Height="38" VerticalAlignment="Top">
+                            <CheckBox Name="cbAutoChainSelect" Margin="15.38,100,9.997,0" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=AutoChainSelect}" Padding="4,0,0,0" Height="38" VerticalAlignment="Top">
                                 <AccessText TextWrapping="Wrap" Text="Select chains automaticall_y" Foreground="Brown" />
                                <!--<Foreground="Brown" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=AutoChainSelect}" Margin="9.997,112.274,30.074,0" Name="CheckBox1" Height="17.824" VerticalAlignment="Top" HorizontalContentAlignment="Left">Select chains a_utomatically>-->
                                 

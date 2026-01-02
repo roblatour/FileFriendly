@@ -113,7 +113,7 @@
         Dim ReturnCode As CustomDialog.CustomDialogResults
 
         If My.Settings.SoundAlert Then
-            If (InstructionalIcon = CustomDialog.CustomDialogIcons.Warning) Or (InstructionalIcon = CustomDialog.CustomDialogIcons.Stop) Then
+            If (InstructionalIcon = CustomDialog.CustomDialogIcons.Warning) OrElse (InstructionalIcon = CustomDialog.CustomDialogIcons.Stop) Then
                 Beep()
             End If
 

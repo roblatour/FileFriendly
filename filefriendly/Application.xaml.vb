@@ -45,6 +45,7 @@
 
         If outlookVersion.Length = 0 Then
 
+            If My.Settings.SoundAlert Then Beep()
             MsgBox("FileFriendly has encountered a problem and cannot continue." & vbCrLf & vbCrLf &
                "It appears that Microsoft Outlook is not installed on this computer." & vbCrLf & vbCrLf &
                "FileFreindly requires Outlook to be able to run.",
@@ -52,6 +53,7 @@
 
         Else
 
+            If My.Settings.SoundAlert Then Beep()
             ' Show full exception text instead of only InnerException
             If MsgBox("FileFriendly has encountered a problem and cannot continue." & vbCrLf & vbCrLf &
                   "Would you like to see more detailed information about this problem?",
