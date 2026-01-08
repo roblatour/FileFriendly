@@ -5049,17 +5049,7 @@ EarlyExit:
 
                         If (SourceStoreID = TargetStoreID) AndAlso (SourceEntryID = TargetEntryID) Then
 
-                            Call ShowMessageBox("FileFriendly - Information",
-                                  CustomDialog.CustomDialogIcons.Information,
-                                  "Opps, you've asked to file an e-mail in the folder which it is already in.",
-                                  vbCrLf & "No action was taken." & vbCrLf,
-                                  "The email with subject: " & vbCrLf & ListView1.Items(IndexToAction).Subject & vbCrLf & vbCrLf & "is already in folder:" & vbCrLf & gFolderTable(oldgFolderTableIndex).FolderPath,
-                                  "",
-                                  CustomDialog.CustomDialogIcons.None,
-                                  CustomDialog.CustomDialogButtons.OK,
-                                  CustomDialog.CustomDialogResults.OK)
-
-                            Exit Select
+                            Continue For ' No move needed; skip to next selected item
 
                         End If
 
