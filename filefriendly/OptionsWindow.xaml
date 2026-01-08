@@ -2,8 +2,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:self="clr-namespace:filefriendly.My"        
-    Title="FileFriendly - Options" Height="280" Width="784" WindowStyle="None" ShowInTaskbar="False" Visibility="Visible" Name="Window1" WindowStartupLocation="CenterOwner" Topmost="True" SnapsToDevicePixels="True" ResizeMode="CanResize" MaxHeight="280" MinHeight="280" MaxWidth="784" MinWidth="784" Icon="/filefriendly;component/Resources/fflogogif.gif">
-    
+    Title="FileFriendly - Options" Height="290" Width="768" WindowStyle="None" ShowInTaskbar="False" Visibility="Visible" Name="Window1" WindowStartupLocation="CenterOwner" Topmost="True" SnapsToDevicePixels="True" ResizeMode="CanResize" MaxHeight="280" MinHeight="280" MaxWidth="784" MinWidth="784" Icon="/filefriendly;component/Resources/fflogogif.gif">
+
     <Window.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
@@ -18,10 +18,10 @@
     <Window.Background>
         <StaticResource ResourceKey="WindowsBackgroundBrush" />
     </Window.Background>
-    
-    <Grid Height="310.676" Width="773" ShowGridLines="False">
-        <TabControl Margin="8,3,12,82.283" Name="TabControl1">
-                       
+
+    <Grid Width="773" ShowGridLines="False" Margin="6,0,5,-43">
+        <TabControl Margin="8,3,12,82" Name="TabControl1">
+
             <TabItem Header="Options" Name="TabItem1" Foreground="Brown">
                 <Grid Height="250" Width="737">
                     <GroupBox Header="Sounds" Margin="0,12,7,0" Name="GroupBox2" Foreground="Brown" BorderBrush="Brown" HorizontalAlignment="Right" Width="140" Height="107" VerticalAlignment="Top">
@@ -31,8 +31,8 @@
                             <CheckBox Name="cbScanComplete" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=SoundScanComplete}" Margin="5,45.696,12,0"    Foreground="Brown" Height="18" VerticalAlignment="Top">Scan co_mplete</CheckBox>
                         </Grid>
                     </GroupBox>
-                    <GroupBox Header="Start" Margin="2,12,0,59" Name="GroupBox3" Background="Transparent" Foreground="Brown" BorderBrush="Brown" HorizontalAlignment="Left" Width="140"></GroupBox>
-                    <GroupBox Header="Main Window" Margin="294,12,302,59" Name="GroupBox5">
+                    <GroupBox Header="Start" Margin="2,12,0,48" Name="GroupBox3" Background="Transparent" Foreground="Brown" BorderBrush="Brown" HorizontalAlignment="Left" Width="140"></GroupBox>
+                    <GroupBox Header="Main Window" Margin="285,12,310,48" Name="GroupBox5">
                         <Grid Height="196" Width="141">
                             <GroupBox Header="Dates and times" Margin="5,6.426,16,0" Name="GroupBox4" Height="82.608" VerticalAlignment="Top">
                                 <Grid Height="50.754">
@@ -42,27 +42,30 @@
                             </GroupBox>
                             <CheckBox Name="cbAutoChainSelect" Margin="15.38,100,9.997,0" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=AutoChainSelect}" Padding="4,0,0,0" Height="38" VerticalAlignment="Top">
                                 <AccessText TextWrapping="Wrap" Text="Select chains automaticall_y" Foreground="Brown" />
-                               <!--<Foreground="Brown" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=AutoChainSelect}" Margin="9.997,112.274,30.074,0" Name="CheckBox1" Height="17.824" VerticalAlignment="Top" HorizontalContentAlignment="Left">Select chains a_utomatically>-->
-                                
-                                </CheckBox>
+                                <!--<Foreground="Brown" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=AutoChainSelect}" Margin="9.997,112.274,30.074,0" Name="CheckBox1" Height="17.824" VerticalAlignment="Top" HorizontalContentAlignment="Left">Select chains a_utomatically>-->
+
+                            </CheckBox>
                         </Grid>
                     </GroupBox>
-                    <GroupBox Header="Confirm" Margin="0,12,154,59" Name="GroupBox1" Foreground="Brown" BorderBrush="Brown" HorizontalAlignment="Right" Width="140">
+                    <GroupBox Header="Confirm" Margin="0,12,154,48" Name="GroupBox1" Foreground="Brown" BorderBrush="Brown" HorizontalAlignment="Right" Width="151">
                         <Grid Height="191" Width="124">
-                            <CheckBox Name="cbConfirmFile" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmFile}" Margin="2.001,47.838,26.013,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_File</CheckBox>
-                            <CheckBox Name="cbConfirmDelete" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmDelete}" Margin="2.001,3.57,42.688,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Delete</CheckBox>
-                            <CheckBox Name="cbConfirmExit" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmExit}" Margin="2.001,25.704,24.012,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Exit</CheckBox>
-                            <CheckBox Name="cbConfirmOpen" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmOpen}" Margin="2.001,89.964,40.02,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Open</CheckBox>
-                            <CheckBox Name="cbConfirmUndo" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmUndo}" Margin="2.001,112.098,42.688,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Undo</CheckBox>
-                            <CheckBox Name="cbConfirmHide" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmHide}" Margin="2.001,68.544,42.688,0" Foreground="Brown" Height="23.52" VerticalAlignment="Top">_Hide</CheckBox>
+
+                            <CheckBox Name="cbConfirmDelete" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmDelete}" Margin="2,4,-31,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Delete</CheckBox>
+                            <CheckBox Name="cbConfirmExit" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmExit}" Margin="2,25.704,24.012,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Exit</CheckBox>
+                            <CheckBox Name="cbConfirmFile" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmFile}" Margin="2,47.838,26.013,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_File</CheckBox>
+                            <CheckBox Name="cbConfirmHide" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmHide}" Margin="2,68.544,42.688,0" Foreground="Brown" Height="23.52" VerticalAlignment="Top">_Hide</CheckBox>
+                            <CheckBox Name="cbConfirmToggle" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmToggle}" Margin="2,90,0,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Mark Read/Unread</CheckBox>
+                            <CheckBox Name="cbConfirmOpen" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmOpen}" Margin="2,112.098,42.688,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Open</CheckBox>
+                            <CheckBox Name="cbConfirmUndo" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ConfirmUndo}" Margin="2,133.518,42.688,0" Height="18" Foreground="Brown" VerticalAlignment="Top">_Undo</CheckBox>
+
                         </Grid>
                     </GroupBox>
-                    <GroupBox BorderBrush="Brown" Foreground="Brown" Header="Upgrade Available" Margin="0,125,6,59" Name="GroupBox7" HorizontalAlignment="Right" Width="140">
+                    <GroupBox BorderBrush="Brown" Foreground="Brown" Header="Upgrade Available" Margin="0,125,6,48" Name="GroupBox7" HorizontalAlignment="Right" Width="140">
                         <Grid Height="79" Width="109">
                             <CheckBox Name="cbUpgradeNofity" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=UpgradeNotify}"  Margin="-1,7,3,0"  Foreground="Brown" Height="18" VerticalAlignment="Top">Let me know_!</CheckBox>
                         </Grid>
                     </GroupBox>
-                    <GroupBox BorderBrush="Brown" Foreground="Brown" Header="Folder Window" Margin="148,12,0,59" Name="GroupBox6" HorizontalAlignment="Left" Width="140">
+                    <GroupBox BorderBrush="Brown" Foreground="Brown" Header="Folder Window" Margin="148,12,0,48" Name="GroupBox6" HorizontalAlignment="Left" Width="132">
                         <Grid Height="194" Width="141">
                             <CheckBox Name="cbStartDocked" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=StartDocked}" Margin="7,4.998,29,0" Foreground="Brown" Height="21" VerticalAlignment="Top">Start doc_ked</CheckBox>
                             <RadioButton Name="rbDockLeft" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=DockLeft}" Margin="23,25,19,0" Foreground="Brown" Height="16" VerticalAlignment="Top">Dock _left</RadioButton>
@@ -71,7 +74,7 @@
                             <!--<Separator Background="Brown" Margin="4,74,22,0" Name="Separator1" Height="1" VerticalAlignment="Top" />-->
                         </Grid>
                     </GroupBox>
-                    <Grid Width="142" HorizontalAlignment="Left" Margin="5,39.96,0,59">
+                    <Grid Width="142" HorizontalAlignment="Left" Margin="5,40,0,48">
                         <CheckBox Name="cbScanInbox" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ScanInbox}" Height="21" Margin="7.854,7.14,15.708,0" VerticalAlignment="Top" Foreground="Brown">Scan inbo_x</CheckBox>
                         <CheckBox Name="cbScanSent" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ScanSent}" Margin="7,28,17,0" Height="22" VerticalAlignment="Top" Foreground="Brown">Scan _sent items</CheckBox>
                         <CheckBox Name="cbScanAllFolders" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ScanAll}" Margin="7,48,17,0" Foreground="Brown" Height="16" VerticalAlignment="Top">S_can filed e-mails</CheckBox>

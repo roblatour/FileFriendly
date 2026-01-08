@@ -10,6 +10,12 @@
     Private WindowDockingInProgress As Boolean = False
 
     Private QuickFilterWord As String = ""
+    Private Const BackspaceTag As String = "*Backspace*"
+    Private Const AbcTag As String = "*ABC*"
+    Private Const SpaceTag As String = "*Space*"
+    Private Const BackspaceGlyph As String = "←"
+    Private _numericMode As Boolean = False
+    Private _lastButton As Button = Nothing
 
     ' Flag used to suppress TreeView selection handling while rebuilding items
     Private _isLoadingTreeView As Boolean = False
@@ -38,6 +44,10 @@
                          CustomDialog.CustomDialogResults.OK)
         End Try
 
+        _lastButton = Button00
+        ApplyAlphabetLayout()
+        UpdateButton(QuickFilterWord)
+
     End Sub
 
     Public Sub SafelyRefreshPickAFolderWindow()
@@ -45,7 +55,11 @@
     End Sub
     Private RefreshPickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf RefreshPickAFolderWindowNow)
     Private Sub RefreshPickAFolderWindowNow()
-        LoadTreeView()
+        If QuickFilterWord.Length = 0 Then
+            LoadTreeView("None")
+        Else
+            LoadTreeView(QuickFilterWord)
+        End If
     End Sub
 
     Public Sub SafelyHidePickAFolderWindow()
@@ -161,6 +175,7 @@
             OriginalGuidelineHeight = Me.Guideline.ActualHeight
 
             ResetLookOfWindow()
+            ApplyAlphabetLayout()
 
             If gWindowDocked Then
                 PlaceWindow()
@@ -521,11 +536,112 @@
 
     End Sub
 
+    Private Function QuickFilterButtons() As List(Of Button)
+        Return New List(Of Button) From {Button00, Button01, Button02, Button03, Button04, Button05, Button06, Button07, Button08, Button09, Button10, Button11, Button12, Button13, Button14, Button15, Button16, Button17, Button18, Button19, Button20, Button21, Button22, Button23, Button24, Button25, Button26, Button27, Button28, Button30, Button29}
+    End Function
+
+    Private Sub ResetButtonAppearance(ByVal button As Button)
+        If button Is Nothing Then Exit Sub
+        Dim tagValue As String = TryCast(button.Tag, String)
+        If String.Equals(tagValue, "*None*", StringComparison.Ordinal) Then
+            button.Content = "None"
+        ElseIf String.Equals(tagValue, BackspaceTag, StringComparison.Ordinal) Then
+            button.Content = BackspaceGlyph
+        ElseIf String.Equals(tagValue, AbcTag, StringComparison.Ordinal) Then
+            button.Content = "ABC..."
+        ElseIf String.Equals(tagValue, SpaceTag, StringComparison.Ordinal) Then
+            button.Content = "{space}"
+        Else
+            button.Content = tagValue
+        End If
+        button.IsEnabled = True
+    End Sub
+
+    Private Sub ResetButtonSelection()
+        If _lastButton IsNot Nothing Then
+            ResetButtonAppearance(_lastButton)
+            _lastButton = Nothing
+        End If
+    End Sub
+
+    Private Function FindButtonByTag(ByVal tagValue As String) As Button
+        For Each button In QuickFilterButtons()
+            If button IsNot Nothing AndAlso button.Visibility = Windows.Visibility.Visible Then
+                Dim storedTag As String = TryCast(button.Tag, String)
+                If storedTag IsNot Nothing AndAlso String.Equals(storedTag, tagValue, StringComparison.OrdinalIgnoreCase) Then
+                    Return button
+                End If
+            End If
+        Next
+        Return Nothing
+    End Function
+
+    Private Sub ApplyAlphabetLayout()
+        _numericMode = False
+        Dim letters As String = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        Button00.IsEnabled = True
+        Dim buttons = QuickFilterButtons()
+        For i As Integer = 0 To letters.Length - 1
+            Dim btn As Button = buttons(i + 1)
+            btn.Visibility = Windows.Visibility.Visible
+            btn.Content = letters(i)
+            btn.Tag = letters(i).ToString
+            btn.IsEnabled = True
+        Next
+        Button27.Visibility = Windows.Visibility.Visible
+        Button27.Content = "!"
+        Button27.Tag = "!"
+        Button27.IsEnabled = True
+        Button28.Visibility = Windows.Visibility.Visible
+        Button28.Content = "123..."
+        Button28.Tag = "9"
+        Button28.IsEnabled = True
+        Button30.Visibility = Windows.Visibility.Visible
+        Button30.Content = "{space}"
+        Button30.Tag = SpaceTag
+        Button30.IsEnabled = True
+        Button29.Visibility = Windows.Visibility.Visible
+        Button29.Content = BackspaceGlyph
+        Button29.Tag = BackspaceTag
+        Button29.IsEnabled = True
+        ResetButtonSelection()
+    End Sub
+
+    Private Sub EnterNumericMode()
+        _numericMode = True
+        Button00.IsEnabled = True
+        Dim digits As String() = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9"}
+        Dim buttons = QuickFilterButtons()
+        For i As Integer = 0 To 10
+            Dim btn As Button = buttons(i + 1)
+            Dim digitValue As String = digits(i Mod digits.Length)
+            btn.Visibility = Windows.Visibility.Visible
+            btn.Content = digitValue
+            btn.Tag = digitValue
+            btn.IsEnabled = True
+        Next
+        Button12.Visibility = Windows.Visibility.Visible
+        Button12.Content = "ABC..."
+        Button12.Tag = AbcTag
+        Button12.IsEnabled = True
+        Button13.Visibility = Windows.Visibility.Visible
+        Button13.Content = BackspaceGlyph
+        Button13.Tag = BackspaceTag
+        Button13.IsEnabled = True
+        For i As Integer = 14 To buttons.Count - 1
+            Dim btn As Button = buttons(i)
+            btn.Visibility = Windows.Visibility.Collapsed
+        Next
+        ResetButtonSelection()
+    End Sub
+
     Private Sub ProcessIncomingText(ByVal IncomingText As String)
 
         If gScanningFolders Then Exit Sub
 
         If IncomingText = "Escape" Then
+            QuickFilterWord = ""
+            UpdateButton(QuickFilterWord)
             LoadTreeView("None")
             Exit Sub
         End If
@@ -537,116 +653,80 @@
         Else
 
             If QuickFilterWord.Length = 0 Then
-                'first character must be a letter or number or "!"
                 Dim ch As Char = IncomingText(0)
-                If (ch < "A"c OrElse ch > "Z"c) AndAlso (ch < "a"c OrElse ch > "z"c) AndAlso (ch < "0"c OrElse ch > "9"c) AndAlso (ch <> "!"c) Then
-                    'invalid first character
+                If (ch < "A"c OrElse ch > "Z"c) AndAlso (ch < "a"c OrElse ch > "z"c) AndAlso (ch < "0"c OrElse ch > "9"c) AndAlso (ch <> "!"c) AndAlso (ch <> " "c) Then
                     Exit Sub
                 End If
-
             End If
 
             QuickFilterWord &= IncomingText
+            If QuickFilterWord.Length > 0 Then
+                Dim firstChar As Char = QuickFilterWord(0)
+                If Char.IsLetter(firstChar) Then
+                    QuickFilterWord = Char.ToUpper(firstChar) & QuickFilterWord.Substring(1)
+                End If
+            End If
         End If
 
         UpdateButton(QuickFilterWord)
 
+        If QuickFilterWord.Length = 0 Then
+            LoadTreeView("None")
+        Else
+            LoadTreeView(QuickFilterWord)
+        End If
+
     End Sub
 
-    Private _GeneratedClick As Boolean = False
 
     Private Sub Button00_Click(ByVal sender As System.Object, ByVal e As System.Windows.RoutedEventArgs) Handles _
                 Button00.Click, Button01.Click, Button02.Click, Button03.Click, Button04.Click, Button05.Click, Button06.Click, Button07.Click, Button08.Click, Button09.Click,
                 Button10.Click, Button11.Click, Button12.Click, Button13.Click, Button14.Click, Button15.Click, Button16.Click, Button17.Click, Button18.Click, Button19.Click,
-                Button20.Click, Button21.Click, Button22.Click, Button23.Click, Button24.Click, Button25.Click, Button26.Click, Button27.Click, Button28.Click
+                Button20.Click, Button21.Click, Button22.Click, Button23.Click, Button24.Click, Button25.Click, Button26.Click, Button27.Click, Button28.Click, Button30.Click, Button29.Click
 
-        If gScanningFolders Then Exit Sub
+        If gScanningFolders AndAlso Not Object.ReferenceEquals(sender, Button00) Then Exit Sub
 
         Dim clickedButton As Button = TryCast(sender, Button)
         If clickedButton Is Nothing Then Exit Sub
 
-        Static Dim LastButton As Button = Button00
-
         Try
 
-            If _GeneratedClick Then
-                ' a key was pressed
-
-                Dim clickedTag As String = TryCast(clickedButton.Tag, String)
-                Dim lastTag As String = TryCast(LastButton.Tag, String)
-
-                If Not String.Equals(clickedTag, lastTag, StringComparison.Ordinal) Then
-                    'buttons have changed
-
-                    'Reset the current button's content
-                    If String.Equals(clickedTag, "*None*", StringComparison.Ordinal) Then
-                        QuickFilterWord = ""
-                    Else
-                        If QuickFilterWord.Length = 1 Then
-                            Dim ch As Char = QuickFilterWord(0)
-                            If ch >= "a"c AndAlso ch <= "z"c Then
-                                QuickFilterWord = clickedTag
-                            End If
-                        End If
-                    End If
-
-                    'Reset the last button's content
-                    If String.Equals(lastTag, "*None*", StringComparison.Ordinal) Then
-                        LastButton.Content = "None"
-                    Else
-                        LastButton.Content = lastTag
-                    End If
-
-                    'change colour of buttons
-                    LastButton.IsEnabled = True
-                    clickedButton.IsEnabled = False
-
-                    'ensure the 'None' button is enabled
-                    Button00.IsEnabled = True
-
-                    LastButton = clickedButton
-
-                End If
-
-                _GeneratedClick = False
-
-            Else
-
-                ' a button was clicked
-
-                Dim clickedTag As String = TryCast(clickedButton.Tag, String)
-                Dim lastTag As String = TryCast(LastButton.Tag, String)
-
-                If String.Equals(clickedTag, "*None*", StringComparison.Ordinal) Then
-                    QuickFilterWord = ""
-                Else
-                    QuickFilterWord = clickedTag
-                End If
-
-                If Not String.Equals(clickedTag, lastTag, StringComparison.Ordinal) Then
-
-                    'Reset the last button's content
-                    If String.Equals(lastTag, "*None*", StringComparison.Ordinal) Then
-                        LastButton.Content = "None"
-                    Else
-                        LastButton.Content = lastTag
-                    End If
-
-                    'change colour of buttons
-                    LastButton.IsEnabled = True
-                    clickedButton.IsEnabled = False
-
-                    LastButton = clickedButton
-
-                End If
-
-            End If
-
-            If QuickFilterWord.Length = 0 Then
+            If clickedButton Is Button00 Then
+                QuickFilterWord = ""
+                _numericMode = False
+                ApplyAlphabetLayout()
+                UpdateButton(QuickFilterWord)
                 LoadTreeView("None")
-            Else
-                LoadTreeView(QuickFilterWord)
+                Return
             End If
+
+            If clickedButton Is Button28 Then
+                EnterNumericMode()
+                UpdateButton(QuickFilterWord)
+                Return
+            End If
+
+            Dim clickedTag As String = TryCast(clickedButton.Tag, String)
+
+            If String.Equals(clickedTag, AbcTag, StringComparison.Ordinal) Then
+                ApplyAlphabetLayout()
+                UpdateButton(QuickFilterWord)
+                Return
+            End If
+
+            If String.Equals(clickedTag, BackspaceTag, StringComparison.Ordinal) Then
+                ProcessIncomingText(vbBack)
+                Return
+            End If
+
+            If String.Equals(clickedTag, SpaceTag, StringComparison.Ordinal) Then
+                ProcessIncomingText(" ")
+                Return
+            End If
+
+            If String.IsNullOrEmpty(clickedTag) Then Return
+
+            ProcessIncomingText(clickedTag)
 
         Catch ex As Exception
             If My.Settings.SoundAlert Then Beep()
@@ -663,69 +743,31 @@
 
     End Sub
 
+
+    Private Sub UpdateQuickFilterStatus()
+
+        If QuickFilterStatus IsNot Nothing Then
+
+            ' change the display of the quick filter word below to display it in proper case
+            Dim QuickFilterWordProperCase As String = ""
+
+            If Not String.IsNullOrEmpty(QuickFilterWord) Then
+
+                Dim ti As System.Globalization.TextInfo = System.Globalization.CultureInfo.CurrentCulture.TextInfo
+                QuickFilterWordProperCase = ti.ToTitleCase(QuickFilterWord.ToLowerInvariant())
+
+            End If
+
+            QuickFilterStatus.Text = "Quick filter: " & QuickFilterWordProperCase
+        End If
+
+    End Sub
+
     Private Sub UpdateButton(ByVal QuickFilterWord As String)
 
-        Dim Button As Button
-        Static Dim ButtonNumber As Integer
-
-        Select Case QuickFilterWord.Length
-
-            Case 0
-                'Quickfliter is now empty 
-
-                'Reset button's content
-                Button = TryCast(Grid2.Children(ButtonNumber + 1), Button)
-                If Button IsNot Nothing Then
-                    Button.Content = Button.Tag
-                End If
-
-                'select the 'None' button
-                _GeneratedClick = True
-                Button00.RaiseEvent(New RoutedEventArgs(Button.ClickEvent))
-
-            Case 1
-
-                Dim firstChar As Char = QuickFilterWord(0)
-                Select Case firstChar
-                    Case "A"c To "Z"c, "a"c To "z"c
-                        ButtonNumber = Asc(Char.ToUpper(firstChar)) - Asc("A"c) + 1
-                        QuickFilterWord = QuickFilterWord.ToUpper 'keep first letter capitalized
-                    Case "0"c To "9"c
-                        ButtonNumber = 27
-                    Case Else
-                        ButtonNumber = 28
-                End Select
-
-                _GeneratedClick = True
-                Button = TryCast(Grid2.Children(ButtonNumber + 1), Button) ' the +1 is to account for the 'Quick Filter' label
-                If Button IsNot Nothing Then
-                    Button.Content = QuickFilterWord
-                    Button.RaiseEvent(New RoutedEventArgs(Button.ClickEvent))
-                End If
-
-            Case Else
-                'Find the button that starts with the same letter as the quick word filter
-                'and update its content to = the quick work filter, and then select it
-
-                Dim firstChar As Char = Char.ToUpper(QuickFilterWord(0))
-
-                Select Case firstChar
-                    Case "A"c To "Z"c
-                        ButtonNumber = Asc(firstChar) - Asc("A"c) + 1
-                    Case "0"c To "9"c
-                        ButtonNumber = 27
-                    Case Else
-                        ButtonNumber = 28
-                End Select
-
-                _GeneratedClick = True
-                Button = TryCast(Grid2.Children(ButtonNumber + 1), Button) ' the +1 is to account for the 'Quick Filter' label
-                If Button IsNot Nothing Then
-                    Button.Content = QuickFilterWord
-                    Button.RaiseEvent(New RoutedEventArgs(Button.ClickEvent))
-                End If
-
-        End Select
+        ResetButtonSelection()
+        Button00.IsEnabled = True
+        UpdateQuickFilterStatus()
 
     End Sub
 
@@ -803,17 +845,8 @@
                 QuickFilterWord = ""
                 AllEntriesDisplayed = True
 
-                'Reset All Buttons
-                For Each obj As Object In Grid2.Children
-                    Dim btn As Button = TryCast(obj, Button)
-                    If btn IsNot Nothing AndAlso btn.Name.StartsWith("Button", StringComparison.OrdinalIgnoreCase) Then
-                        If btn.Name <> "Button00" Then
-                            btn.Content = btn.Tag
-                            btn.IsEnabled = True
-                        End If
-                    End If
-                Next
-                Button00.IsEnabled = False
+                ApplyAlphabetLayout()
+                UpdateButton(QuickFilterWord)
 
             Else
 
@@ -823,7 +856,7 @@
 
                 For i = 0 To WorkingFoldersNameTable.Length - 1
                     ws = WorkingFoldersNameTable(i).ToUpper
-                    If ws.Contains(MatchTargetA) Or ws.Contains(MatchTargetB) Or ws.Contains(MatchTargetC) Then
+                    If ws.Contains(MatchTargetA) OrElse ws.Contains(MatchTargetB) OrElse ws.Contains(MatchTargetC) OrElse ws.Contains(MatchTargetD) Then
                         WorkingFoldersNameTable(ii) = WorkingFoldersNameTable(i)
                         ii += 1
                     End If
@@ -914,7 +947,7 @@
                         Nodes(x).Foreground = System.Windows.Media.Brushes.Brown
                     Else
                         ws = CurrentFolderName.ToUpper
-                        If (ws.StartsWith(MatchTargetD)) Or (ws.Contains(MatchTargetB)) Or (ws.Contains(MatchTargetC)) Then
+                        If (ws.StartsWith(MatchTargetD)) OrElse (ws.Contains(MatchTargetB)) OrElse (ws.Contains(MatchTargetC)) Then
                             Nodes(x).Foreground = System.Windows.Media.Brushes.Black
                         Else
                             Nodes(x).Foreground = System.Windows.Media.Brushes.Brown
@@ -977,7 +1010,7 @@
         ' resize the 29 buttons
         ' a guideline is used to set the target height of the buttons
 
-        Dim NewHeight As Double = (Guideline.ActualHeight / 30)
+        Dim NewHeight As Double = (Guideline.ActualHeight / QuickFilterButtons().Count)
 
         For Each obj As Object In Grid2.Children
             Dim btn As Button = TryCast(obj, Button)
@@ -993,21 +1026,21 @@
 
         If gWhoIsInControl = WhoIsInControlType.Main Then
             If gWindowDocked Then
-                If (gmwHeight <> Me.ActualHeight) Or (Me.Top <> gmwTop) Then
+                If (gmwHeight <> Me.ActualHeight) OrElse (Me.Top <> gmwTop) Then
                     Me.Height = gmwHeight
                     Me.Top = gmwTop
                 End If
             End If
         Else
             If gWindowDocked Then
-                If (gmwHeight <> Me.ActualHeight) Or (Me.Top <> gmwTop) Then
+                If (gmwHeight <> Me.ActualHeight) OrElse (Me.Top <> gmwTop) Then
                     gmwHeight = Me.ActualHeight
                     gmwWidth = Me.ActualWidth
                     gmwTop = Me.Top
                     gMainWindow.SafelyResizeMainWindow()
                 End If
 
-                If (gmwWidth <> Me.ActualWidth) Then ' Or (Me.Left <> gmwLeft) Then
+                If (gmwWidth <> Me.ActualWidth) Then ' orelse (Me.Left <> gmwLeft) Then
                     'gmwHeight = Me.ActualHeight
                     'gmwWidth = Me.ActualWidth
                     'gmwTop = Me.Top

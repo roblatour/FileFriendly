@@ -94,7 +94,7 @@
 
     Private Sub cbScanInbox_Unchecked(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles cbScanInbox.Unchecked, cbScanSent.Unchecked, cbScanAllFolders.Unchecked
 
-        If cbScanInbox.IsChecked Or cbScanSent.IsChecked Or cbScanAllFolders.IsChecked Then
+        If cbScanInbox.IsChecked OrElse cbScanSent.IsChecked OrElse cbScanAllFolders.IsChecked Then
         Else
             ShowMessageBox("FileFriendly", _
                            CustomDialog.CustomDialogIcons.Warning, _

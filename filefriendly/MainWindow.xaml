@@ -11,7 +11,7 @@
         ResizeMode="CanResizeWithGrip"
         OverridesDefaultStyle="False"
         WindowStyle="None"
-        WindowStartupLocation="CenterOwner"
+        WindowStartupLocation="Manual"
         Icon="/filefriendly;component/Resources/fflogogif.gif">
 
     <Window.Resources>
@@ -63,6 +63,13 @@
                 <MenuItem Header="_Open"
                           Name="MenuOpen"
                           Tag="Open"
+                          Foreground="{StaticResource DefaultSystemBrush}"
+                          Background="{StaticResource DefaultMenueBackgroundBrush}"
+                          IsCheckable="False"
+                          Cursor="Arrow"/>
+                <MenuItem Header="_Mark Read/Unread"
+                          Name="MenuToggle"
+                          Tag="ToggleRead"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
@@ -146,7 +153,7 @@
                           Cursor="Arrow"/>
                 <MenuItem Header="_Filed e-mails"
                           Name="MenuViewAll"
-                          Tag="ViewAll"
+                          Tag="ViewOtherFolders"
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="True"
@@ -275,7 +282,7 @@
                                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                                           IsCheckable="False"
                                           Cursor="Arrow"/>
-                                <MenuItem Header="Mark as Read"
+                                <MenuItem Header="Mark as read"
                                           Name="MenuContextToggleRead"
                                           Tag="ToggleRead"
                                           Foreground="{StaticResource DefaultSystemBrush}"

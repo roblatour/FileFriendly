@@ -1,4 +1,6 @@
-﻿Module modSharedDataAndRoutines
+﻿Imports System.Windows.Threading
+
+Module modSharedDataAndRoutines
 
     ' Shared Data
 
@@ -161,13 +163,13 @@
 
     Friend Sub ProcessKeyUp(ByVal e As System.Windows.Input.KeyEventArgs)
 
-        If (e.Key.ToString = "RightShift") Or (e.Key.ToString = "LeftShift") Then
+        If (e.Key.ToString = "RightShift") OrElse (e.Key.ToString = "LeftShift") Then
             ShiftOn = False
 
-        ElseIf (e.Key.ToString = "RightCtrl") Or (e.Key.ToString = "LeftCtrl") Then
+        ElseIf (e.Key.ToString = "RightCtrl") OrElse (e.Key.ToString = "LeftCtrl") Then
             CtrlOn = False
 
-        ElseIf (e.Key.ToString = "RightAlt") Or (e.Key.ToString = "LeftAlt") Then
+        ElseIf (e.Key.ToString = "RightAlt") OrElse (e.Key.ToString = "LeftAlt") Then
             AltOn = False
 
         End If
@@ -183,7 +185,7 @@
         End If
         'Console.WriteLine(e.Key.ToString)
 
-        If (e.Key = Key.RightAlt) Or (e.Key = Key.LeftAlt) Or (e.Key = 156) Then
+        If (e.Key = Key.RightAlt) OrElse (e.Key = Key.LeftAlt) OrElse (e.Key = 156) Then
             MenuKeyStrokeOverRide = Not MenuKeyStrokeOverRide
             If MenuKeyStrokeOverRide Then
                 gMainWindow.SafelyActivateMenu()
@@ -295,7 +297,7 @@
 
         End Select
 
-        If (gSentText.Length = 1) Or (gSentText = "Escape") Then
+        If (gSentText.Length = 1) OrElse (gSentText = "Escape") Then
             gPickAFolderWindow.SafelyUpdateQuickFilter()
         End If
 

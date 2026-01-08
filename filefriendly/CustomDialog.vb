@@ -282,8 +282,12 @@ Public Class CustomDialog
 
         If Me.AdditionalDetailsText.Length > 0 Then
             obj.tbAdditionalDetailsText.Text = Me.AdditionalDetailsText
+            obj.tbAdditionalDetailsText.FontFamily = obj.tbInstructionText.FontFamily
+            obj.tbAdditionalDetailsText.FontSize = obj.tbInstructionText.FontSize
+            obj.btnCopyDetails.Visibility = Visibility.Collapsed
         Else
             obj.expAdditionalDetails.Visibility = Visibility.Collapsed
+            obj.btnCopyDetails.Visibility = Visibility.Collapsed
         End If
 
         SetButtons(obj)

@@ -129,6 +129,10 @@ Public Class CustomDialogWindow
 
     Private Sub CustomDialogWindow_Loaded(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles Me.Loaded
         Me.tbAdditionalDetailsText.Visibility = Windows.Visibility.Collapsed
+        Me.tbAdditionalDetailsText.FontFamily = Me.tbInstructionText.FontFamily
+        Me.tbAdditionalDetailsText.FontSize = Me.tbInstructionText.FontSize
+        Me.tbAdditionalDetailsText.FontStyle = Me.tbInstructionText.FontStyle
+        Me.tbAdditionalDetailsText.FontWeight = Me.tbInstructionText.FontWeight
 
         If Me.ResizeMode <> Windows.ResizeMode.NoResize Then
             'this work around is necessary when glass is enabled and the window style is None which removes the chrome because the resize mode MUST be set to CanResize or else glass won't display
@@ -170,6 +174,7 @@ Public Class CustomDialogWindow
     Private Sub expAdditionalDetails_Collapsed(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles expAdditionalDetails.Collapsed
         Me.expAdditionalDetails.Header = "See Details"
         Me.tbAdditionalDetailsText.Visibility = Windows.Visibility.Collapsed
+        Me.btnCopyDetails.Visibility = Windows.Visibility.Collapsed
         Me.UpdateLayout()
 
         If Me.ResizeMode <> Windows.ResizeMode.NoResize Then
@@ -186,12 +191,25 @@ Public Class CustomDialogWindow
 
         Me.expAdditionalDetails.Header = "Hide Details"
         Me.tbAdditionalDetailsText.Visibility = Windows.Visibility.Visible
+        If String.IsNullOrEmpty(Me.tbAdditionalDetailsText.Text) = False Then
+            Me.btnCopyDetails.Visibility = Windows.Visibility.Visible
+        End If
         Me.UpdateLayout()
 
         If Me.ResizeMode <> Windows.ResizeMode.NoResize Then
             Me.MaxHeight = Me.ActualHeight
         End If
 
+    End Sub
+
+    Private Sub btnCopyDetails_Click(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles btnCopyDetails.Click
+        If String.IsNullOrEmpty(Me.tbAdditionalDetailsText.Text) = False Then
+
+            Dim textToCopy As String = Me.tbCaption.Text & Me.tbInstructionText.Text & vbCrLf & vbCrLf & Me.tbAdditionalDetailsText.Text
+
+            System.Windows.Clipboard.SetText(textToCopy)
+
+        End If
     End Sub
 
     Private Sub OnTimedEvent(ByVal source As Object, ByVal e As EventArgs)

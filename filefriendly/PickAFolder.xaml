@@ -1,7 +1,7 @@
 ﻿<Window x:Class="PickAFolder"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    Title="FileFriendly - Folders" Height="600" Width="550" MinHeight="550" MinWidth="385" WindowStyle="None" Name="FolderWindow" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip" Margin="0" Visibility="Visible" Tag=" " Icon="/filefriendly;component/Resources/fflogogif.gif">
+    Title="FileFriendly - Folders" Height="760" Width="550" MinHeight="650" MinWidth="385" WindowStyle="None" Name="FolderWindow" ShowInTaskbar="False" ResizeMode="CanResizeWithGrip" Margin="0" Visibility="Visible" Tag=" " Icon="/filefriendly;component/Resources/fflogogif.gif">
 
     <Window.Resources>
         <ResourceDictionary>
@@ -29,14 +29,14 @@
             <RowDefinition Height="416.321*" />
             <RowDefinition Height="110.898" />
             <RowDefinition Height="10" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
-        <TabControl Name="TabControl2" Margin="7,5,12,5" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch" Grid.RowSpan="4" Grid.ColumnSpan="5">
+        <TabControl Name="TabControl2" Margin="7,5,12,5" VerticalContentAlignment="Stretch" HorizontalContentAlignment="Stretch" Grid.RowSpan="5" Grid.ColumnSpan="5">
             <TabItem Header="Folders" Name="TabItem2" Foreground="{StaticResource DefaultSystemBrush}" Background="Transparent" OverridesDefaultStyle="false" Height="Auto" Margin="0">
             </TabItem>
         </TabControl>
         
-        <StackPanel Name="Grid2" Width="48.297" Grid.Column="3" HorizontalAlignment="Right" Margin="0,2.4,0.703,4.298" Grid.RowSpan="2" Grid.Row="1" Background="Transparent">
-            <Label Content="Quick Filter" VerticalAlignment="Top" FontSize="9" HorizontalContentAlignment="Center" Foreground="{StaticResource DefaultSystemBrush}" Padding="2" Margin="-1,0" IsHitTestVisible="False" />
+        <StackPanel Name="Grid2" Width="48.297" Grid.Column="3" HorizontalAlignment="Right" Margin="0,32,0.703,4.298" Grid.RowSpan="4" Grid.Row="0" Background="Transparent">
             <Button Name="Button00" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" HorizontalContentAlignment="Center" Cursor="Arrow" Tag="*None*" 
                     ToolTip="Click the 'None' button or press the ESC key to clear the Quick Filter">None</Button>
             <Button Name="Button01" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="A">A</Button>
@@ -65,8 +65,10 @@
             <Button Name="Button24" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="X">X</Button>
             <Button Name="Button25" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="Y">Y</Button>
             <Button Name="Button26" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="Z">Z</Button>
-            <Button Name="Button27" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="9">9</Button>
-            <Button Name="Button28" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="!">!</Button>
+            <Button Name="Button27" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="!">!</Button>
+            <Button Name="Button28" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="9">123..</Button>
+            <Button Name="Button30" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="*Space*">{space}</Button>
+            <Button Name="Button29" Height="17" Width="45" VerticalAlignment="Top" FontSize="9" Cursor="Arrow" Tag="*Backspace*">←</Button>
         </StackPanel>
         
         <!-- Recommendations -->
@@ -93,6 +95,13 @@
         <Image Name="PushPin" Margin="0,-2,1,0" Width="30" Height="30" Grid.Column="3" Stretch="Fill"  Cursor="Arrow" HorizontalAlignment="Right" Source="/filefriendly;component/Resources/pushpindown.gif" Grid.ColumnSpan="2" Grid.RowSpan="2" VerticalAlignment="Top" />
 
         <Rectangle Name="Guideline" Margin="0,4,0,4.298" Stroke="Black" Fill="Red" Grid.Column="4" Grid.Row="1" Grid.RowSpan="2" Visibility="Hidden" />
+
+        <Rectangle Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="4" Height="1" Margin="8,8,0,0" Name="SeperatorLineBottom" VerticalAlignment="Top" Stroke="{StaticResource DefaultSystemBrush}" Fill="{StaticResource DefaultSystemBrush}" />
+        <StatusBar Grid.Row="4" Grid.ColumnSpan="4" Margin="10,0,10,5" Background="Transparent" BorderThickness="0">
+            <StatusBarItem>
+                <TextBlock Name="QuickFilterStatus" Foreground="{StaticResource DefaultSystemBrush}" FontSize="11" Text="Quick filter: " />
+            </StatusBarItem>
+        </StatusBar>
     </Grid>
             
 </Window>
