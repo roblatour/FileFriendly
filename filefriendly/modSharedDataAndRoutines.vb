@@ -519,6 +519,52 @@ Module modSharedDataAndRoutines
 
     End Function
 
+    Friend Function AdjustWindowRect(savedLeft As Double, savedTop As Double, savedWidth As Double, savedHeight As Double, minWidth As Double, minHeight As Double) As System.Windows.Rect
+
+        Dim width As Double = savedWidth
+        Dim height As Double = savedHeight
+
+        If width <= 0 Then width = minWidth
+        If height <= 0 Then height = minHeight
+
+        Dim savedRect As New System.Windows.Rect(savedLeft, savedTop, Math.Max(width, minWidth), Math.Max(height, minHeight))
+
+        Dim targetScreen As System.Windows.Forms.Screen = Nothing
+
+        For Each screen In System.Windows.Forms.Screen.AllScreens
+            Dim work = screen.WorkingArea
+            Dim screenRect As New System.Windows.Rect(work.Left, work.Top, work.Width, work.Height)
+            If savedRect.IntersectsWith(screenRect) Then
+                targetScreen = screen
+                Exit For
+            End If
+        Next
+
+        If targetScreen Is Nothing Then
+            Dim screen = System.Windows.Forms.Screen.PrimaryScreen
+            Dim work = screen.WorkingArea
+            width = Math.Max(minWidth, work.Width / 2)
+            height = Math.Max(minHeight, work.Height / 2)
+            width = Math.Min(width, work.Width)
+            height = Math.Min(height, work.Height)
+            Dim left As Double = work.Left + (work.Width - width) / 2
+            Dim top As Double = work.Top + (work.Height - height) / 2
+            Return New System.Windows.Rect(left, top, width, height)
+        Else
+            Dim work = targetScreen.WorkingArea
+            width = Math.Max(minWidth, Math.Min(width, work.Width))
+            height = Math.Max(minHeight, Math.Min(height, work.Height))
+            Dim left As Double = savedLeft
+            Dim top As Double = savedTop
+            If left < work.Left Then left = work.Left
+            If top < work.Top Then top = work.Top
+            If left + width > work.Right Then left = work.Right - width
+            If top + height > work.Bottom Then top = work.Bottom - height
+            Return New System.Windows.Rect(left, top, width, height)
+        End If
+
+    End Function
+
 #End Region
 
 #Region "Memory Management"

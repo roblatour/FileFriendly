@@ -170,7 +170,9 @@
 
         Try
 
-            Me.Width = My.Settings.FoldersWidth
+            Dim foldersPlacement As System.Windows.Rect = AdjustWindowRect(My.Settings.FoldersLeft, My.Settings.FoldersTop, My.Settings.FoldersWidth, My.Settings.FoldersHeight, Me.MinWidth, Me.MinHeight)
+
+            Me.Width = foldersPlacement.Width
 
             OriginalGuidelineHeight = Me.Guideline.ActualHeight
 
@@ -178,14 +180,18 @@
             ApplyAlphabetLayout()
 
             If gWindowDocked Then
+                Dim dockHeight As Double = If(gmwHeight > 0, gmwHeight, foldersPlacement.Height)
+                Me.Height = dockHeight
                 PlaceWindow()
+                Dim adjustedDocked As System.Windows.Rect = AdjustWindowRect(Me.Left, Me.Top, Me.ActualWidth, Me.ActualHeight, Me.MinWidth, Me.MinHeight)
+                Me.Width = adjustedDocked.Width
+                Me.Height = adjustedDocked.Height
+                Me.Left = adjustedDocked.X
+                Me.Top = adjustedDocked.Y
             Else
-                If My.Settings.FoldersTop > 0 Then
-                    Me.Top = My.Settings.FoldersTop
-                End If
-                If My.Settings.FoldersLeft > 0 Then
-                    Me.Left = My.Settings.FoldersLeft
-                End If
+                Me.Height = foldersPlacement.Height
+                Me.Left = foldersPlacement.X
+                Me.Top = foldersPlacement.Y
             End If
 
             If My.Settings.SoundDocking Then

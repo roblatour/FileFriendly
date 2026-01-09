@@ -6,7 +6,7 @@
         Height="600"
         Width="800"
         MinWidth="385"
-        MinHeight="550"
+        MinHeight="650"
         AllowsTransparency="False"
         ResizeMode="CanResizeWithGrip"
         OverridesDefaultStyle="False"
