@@ -1985,7 +1985,7 @@ CleanExit:
         ' Determine if this folder is Inbox/Sent by its name
         Dim folderName As String = System.IO.Path.GetFileName(CurrentFolderPath).Trim()
         Dim isInboxFolder As Boolean = String.Equals(folderName, "Inbox", StringComparison.OrdinalIgnoreCase)
-        Dim isSentFolder As Boolean = String.Equals(folderName, "Sent", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(folderName, "Sent Items", StringComparison.OrdinalIgnoreCase)
+        Dim isSentFolder As Boolean = String.Equals(folderName, "Sent", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(folderName, "Sent Items", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(folderName, "Sent Mail", StringComparison.OrdinalIgnoreCase)
 
         If (gRefreshInbox AndAlso isInboxFolder) OrElse (gRefreshSent AndAlso isSentFolder) Then
             Include = True
