@@ -112,7 +112,7 @@
                           IsCheckable="False"
                           Cursor="Arrow"/>
                 <Separator/>
-                <MenuItem Header="O_ptions"
+                <MenuItem Header="Change O_ptions"
                           Name="MenuOptions"
                           Tag="Options"
                           Foreground="{StaticResource DefaultSystemBrush}"

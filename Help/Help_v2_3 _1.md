@@ -1,4 +1,4 @@
-# File Friendly v2.3 - Help
+# File Friendly v2.3.1 - Help
 
 File Friendly is designed to help you organize and file your Outlook
 e-mails with speed and accuracy. This help file provides guidance on
@@ -34,13 +34,13 @@ Also, if the option 'Select chains automatically' is checked, then if the e-mail
 
 # Options
 
-Access options via Actions → Options. Configure folders to scan/show, enable automatic chain selection, and upgrade notifications.
+Access options via Actions → Change Options. Configure folders to scan/show, enable automatic chain selection, and upgrade notifications.
 
 Most options should be self explanatory.
 
-Clicking the Start → Options → 'Folders to scan' button allows you to tailor which mailboxes and folders you would like FileFriendly to scan.
+Clicking the Start → Change Options → 'Folders to scan' button allows you to tailor which mailboxes and folders you would like FileFriendly to scan.
 
-Checking the Start → Options → 'Scan filed e-mails' option causes FileFriendly to do a deep scan on your e-mails at start-up time.  This can be a long running process. To halt it it you can select Actions → 'Stop Refresh'.  
+Checking the Start → Change Options → 'Scan filed e-mails' option causes FileFriendly to do a deep scan on your e-mails at start-up time.  This can be a long running process. To halt it it you can select Actions → 'Stop Refresh'.  
 
 # Filing & Managing e-mails
 

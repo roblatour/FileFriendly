@@ -1,4 +1,4 @@
-# Overview - FileFriendly v2.3 (2026-01-09)
+# Overview - FileFriendly v2.3.1 (2026-01-10)
 
 File Friendly works with Microsoft Outlook® to quickly and easily file
 your e-mails exactly where you need them to be.
@@ -16,7 +16,7 @@ the time you are used to.
 - Smart Recommendations: Suggests folders based on your previous filing
   habits.
 
-- Chain Detection: Automatically groups related emails, even if they
+- Chain Detection: Automatically groups related emails, even if they don't
   share the same subject line.
 
 - Misfile Detection: Helps you find and correct misfiled emails by

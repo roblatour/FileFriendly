@@ -14,6 +14,7 @@
         "Outbox",
         "RSS Feeds",
         "Sent Items",
+        "Sent Mail",
         "Spam",
         "Sync Issues",
         "Trash",

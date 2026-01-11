@@ -47,12 +47,19 @@ Module modSharedDataAndRoutines
     Friend Const gFolderTableIncrement As Integer = 1000
     Friend gFolderTableCurrentSize As Integer = 1000
 
+    Enum FolderTableType As Integer
+        OtherFolders = 0
+        Inbox = 1
+        SentItems = 2
+    End Enum
+
     ' Holds Outlook folder identity without keeping a COM object across threads
     Friend Structure FolderInfo
         Friend EntryID As String
         Friend StoreID As String
         Friend FolderPath As String
         Friend DefaultItemType As Microsoft.Office.Interop.Outlook.OlItemType
+        Friend FolderType As FolderTableType
     End Structure
 
     ' Outlook folder table now stores FolderInfo instead of MAPIFolder
@@ -89,7 +96,7 @@ Module modSharedDataAndRoutines
     Friend gContextFile3 As String = ""
     Friend gContextFile4 As String = ""
 
-    Friend Enum WhoIsInControlType As Int16
+    Friend Enum WhoIsInControlType As Integer
         Main = 1
         PickAFolder = 2
     End Enum
