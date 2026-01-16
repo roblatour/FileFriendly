@@ -463,29 +463,29 @@ Class MainWindow
                 gEmailTableIndex += 1
                 ReDim Preserve gEmailTable(gEmailTableIndex)
 
-                Try
+                Dim folderInfo As FolderInfo = gFolderTable(folderIndex)
 
-                    Dim folderInfo As FolderInfo = gFolderTable(folderIndex)
+                With emailDetail
+                    .sSubject = subject
+                    .sTo = toAddr
+                    .sFrom = fromAddr
+                    .sDateAndTime = receivedTime
+                    .sUnRead = If(isUnread, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
+                    .sMailBoxName = GetMailboxNameFromFolderPath(folderInfo.FolderPath, folderInfo.StoreID)
+                    .sTrailer = CreateTrailer(.sDateAndTime, subject, body)
+                End With
 
-                    With emailDetail
-                        .sSubject = subject
-                        .sTo = toAddr
-                        .sFrom = fromAddr
-                        .sDateAndTime = receivedTime
-                        .sUnRead = If(isUnread, System.Windows.FontWeights.Bold, System.Windows.FontWeights.Normal)
-                        .sMailBoxName = GetMailboxNameFromFolderPath(folderInfo.FolderPath, folderInfo.StoreID)
-                        .sTrailer = CreateTrailer(.sDateAndTime, subject, body)
-                    End With
-
-                Catch ex As Exception
-
-                End Try
 
                 gEmailTable(gEmailTableIndex) = emailDetail
 
                 ScheduleRefreshGrid()
 
-            Catch
+            Catch ex As Exception
+
+#If DEBUG Then
+                Dim currentMethodName As String = System.Reflection.MethodBase.GetCurrentMethod().Name
+                Console.WriteLine(currentMethodName & " - " & ex.ToString)
+#End If
 
             Finally
                 SetMousePointer(Cursors.Arrow)
@@ -1775,6 +1775,10 @@ Class MainWindow
 
             For x As Integer = 0 To gFinalRecommendationTable.Length - 1
 
+                If gFinalRecommendationTable(x) Is Nothing Then
+                    Continue For
+                End If
+
                 If gFinalRecommendationTable(x).Index = -1 Then
                     Continue For
                 End If
@@ -1838,12 +1842,17 @@ Class MainWindow
                 Me.ListView1.Focus()
             End If
 
-            RestorePendingSelection()  ' test here
+            RestorePendingSelection()
 
             UpdateSortHeaderGlyph()
 
         Catch ex As Exception
-            ' Optional: log ex.ToString()
+
+#If DEBUG Then
+            Dim currentMethodName As String = System.Reflection.MethodBase.GetCurrentMethod().Name
+            Console.WriteLine(currentMethodName & " - " & ex.ToString)
+#End If
+
         End Try
 
     End Sub
@@ -1989,7 +1998,7 @@ Class MainWindow
 
             If gRefreshInbox OrElse gRefreshSent OrElse gRefreshOtherFolders Then
 
-                If lTotalEMailsToBeReviewed > 0 Then
+                If lTotalEMailsToBeReviewed > 0 OrElse (MSOutlookDrivenEvent AndAlso gEmailTableIndex > 0) Then
 
                     Me.Dispatcher.BeginInvoke(New SetFolderNameTextCallback(AddressOf SetFoldersNameText), New Object() {"Reviewing " & lTotalEMailsToBeReviewed.ToString("#,#", System.Globalization.CultureInfo.InvariantCulture) & " of " & lTotalEMails.ToString("#,#", System.Globalization.CultureInfo.InvariantCulture) & " e-mails"})
 
@@ -3419,8 +3428,6 @@ EarlyExit:
 
         If row Is Nothing Then Return ""
 
-        'Return $"{If(row.MailBoxName, "")}|{If(row.Subject, "")}|{If(row.Trailer, "")}"
-        'Return $"{If(row.MailBoxName, "")}|{If(row.Trailer, "")}"
         Return row.Trailer
 
     End Function
