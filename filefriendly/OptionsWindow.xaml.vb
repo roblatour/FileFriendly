@@ -3,6 +3,8 @@
     Private InitializationComplete As Boolean = False
 
     Private lDateChoiceAtStartupIsWhenSent As Boolean
+    Private lKeepHiddenEmailsHiddenCurrent As Boolean
+    Private EnableOptionsFolderButtons As New System.Windows.Forms.MethodInvoker(AddressOf EnableOptionsFolderButtonsNow)
 
 
     Public Sub New()
@@ -14,6 +16,9 @@
 
     End Sub
 
+    Public Sub SafelyEnableOptionsFolderButtons()
+        Call Dispatcher.BeginInvoke(EnableOptionsFolderButtons)
+    End Sub
 
 
     'can't databind radio boxes, the following is a work around
@@ -22,6 +27,8 @@
         Me.rbDockLeft.IsChecked = My.Settings.DockLeft
         Me.rbWhenReceived.IsChecked = My.Settings.WhenReceived
         EnableOptionsFolderButtonsNow()
+
+        lKeepHiddenEmailsHiddenCurrent = My.Settings.KeepHiddenEmailsHidden
         InitializationComplete = True
 
         lDateChoiceAtStartupIsWhenSent = My.Settings.WhenSent
@@ -62,6 +69,50 @@
         End If
     End Sub
 
+    Private Sub cbKeepHiddenEmailsHidden_Changed(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles cbKeepHiddenEmailsHidden.Checked, cbKeepHiddenEmailsHidden.Unchecked
+
+        If Not InitializationComplete Then Return
+
+        Dim newValue As Boolean = cbKeepHiddenEmailsHidden.IsChecked
+
+        If newValue = lKeepHiddenEmailsHiddenCurrent Then Return
+
+        If newValue Then
+
+            ' option was selected to persist hidden items
+
+            lKeepHiddenEmailsHiddenCurrent = newValue
+            My.Settings.KeepHiddenEmailsHidden = newValue
+
+        Else
+            ' option was selected to not persist hidden items
+
+            Dim result = ShowMessageBox("FileFriendly - Confirmation",
+                                  CustomDialog.CustomDialogIcons.Question,
+                                  "Are you sure?",
+                                  "Unchecking this option means that all hidden items will re-appear when FileFriendly is next started.",
+                                  "",
+                                  "",
+                                  CustomDialog.CustomDialogIcons.None,
+                                  CustomDialog.CustomDialogButtons.YesNo,
+                                  CustomDialog.CustomDialogResults.No)
+
+            If result = CustomDialog.CustomDialogResults.Yes Then
+
+                lKeepHiddenEmailsHiddenCurrent = newValue
+                My.Settings.KeepHiddenEmailsHidden = newValue
+
+            Else
+
+                cbKeepHiddenEmailsHidden.IsChecked = lKeepHiddenEmailsHiddenCurrent
+                My.Settings.KeepHiddenEmailsHidden = lKeepHiddenEmailsHiddenCurrent
+
+            End If
+
+        End If
+
+    End Sub
+
     Private Sub Window_MouseLeftButtonDown(ByVal sender As Object, ByVal e As System.Windows.Input.MouseButtonEventArgs) Handles Me.MouseLeftButtonDown
         DragMove()
     End Sub
@@ -81,10 +132,6 @@
         Me.Close()
     End Sub
 
-    Public Sub SafelyEnableOptionsFolderButtons()
-        Call Dispatcher.BeginInvoke(EnableOptionsFolderButtons)
-    End Sub
-    Private EnableOptionsFolderButtons As New System.Windows.Forms.MethodInvoker(AddressOf EnableOptionsFolderButtonsNow)
     Private Sub EnableOptionsFolderButtonsNow()
 
         Me.btnFoldersToScan.IsEnabled = gFolderButtonsOnOptionsWindowEnabled
@@ -96,14 +143,14 @@
 
         If cbScanInbox.IsChecked OrElse cbScanSent.IsChecked OrElse cbScanAllFolders.IsChecked Then
         Else
-            ShowMessageBox("FileFriendly", _
-                           CustomDialog.CustomDialogIcons.Warning, _
-                           "Note!", _
-                           "Scan inbox, sent items and folders shouldn`t all be unchecked at the same time.", _
-                           "If you uncheck all three then there will be nothing to review!", _
-                           "", _
-                           CustomDialog.CustomDialogIcons.None, _
-                           CustomDialog.CustomDialogButtons.OK, _
+            ShowMessageBox("FileFriendly",
+                           CustomDialog.CustomDialogIcons.Warning,
+                           "Note!",
+                           "Scan inbox, sent items and folders shouldn`t all be unchecked at the same time.",
+                           "If you uncheck all three then there will be nothing to review!",
+                           "",
+                           CustomDialog.CustomDialogIcons.None,
+                           CustomDialog.CustomDialogButtons.OK,
                            CustomDialog.CustomDialogResults.OK)
         End If
 
@@ -139,6 +186,36 @@
             End If
         End If
 
+    End Sub
+
+    Private Sub OptionsWindow_PreviewKeyDown(ByVal sender As Object, ByVal e As System.Windows.Input.KeyEventArgs) Handles Me.PreviewKeyDown
+        If e.Key <> System.Windows.Input.Key.Left AndAlso e.Key <> System.Windows.Input.Key.Right Then Return
+
+        Dim buttons As New List(Of System.Windows.Controls.Button)
+
+        If btnOK.IsVisible AndAlso btnOK.IsEnabled Then buttons.Add(btnOK)
+        If btnCancel.IsVisible AndAlso btnCancel.IsEnabled Then buttons.Add(btnCancel)
+
+        If buttons.Count < 2 Then Return
+
+        Dim focusedButton As System.Windows.Controls.Button = TryCast(System.Windows.Input.Keyboard.FocusedElement, System.Windows.Controls.Button)
+        Dim currentIndex As Integer = buttons.IndexOf(focusedButton)
+
+        If currentIndex = -1 Then
+            buttons(0).Focus()
+            e.Handled = True
+            Return
+        End If
+
+        Dim nextIndex As Integer
+        If e.Key = System.Windows.Input.Key.Left Then
+            nextIndex = (currentIndex - 1 + buttons.Count) Mod buttons.Count
+        Else
+            nextIndex = (currentIndex + 1) Mod buttons.Count
+        End If
+
+        buttons(nextIndex).Focus()
+        e.Handled = True
     End Sub
 
 End Class

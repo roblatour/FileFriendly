@@ -48,6 +48,26 @@ Public Class CustomDialog
 
 #End Region
 
+#Region " Constructors "
+
+
+    Public Sub New(ByVal strCaption As String, ByVal strInstructionHeading As String, ByVal strInstructionText As String, ByVal strAdditionalDetailsText As String, ByVal strFooterText As String, ByVal enumButtons As CustomDialogWindow.CustomDialogButtons, ByVal enumDefaultButton As CustomDialogWindow.CustomDialogResults, ByVal enumInstructionIcon As CustomDialogWindow.CustomDialogIcons, ByVal enumFooterIcon As CustomDialogWindow.CustomDialogIcons, Optional ByVal intButtonsDisabledDelay As Integer = 0)
+
+        _strCaption = strCaption
+        _strInstructionHeading = strInstructionHeading
+        _strInstructionText = strInstructionText
+        _strAdditionalDetailsText = strAdditionalDetailsText
+        _strFooterText = strFooterText
+        _enumButtons = enumButtons
+        _enumDefaultButton = enumDefaultButton
+        _enumInstructionIcon = enumInstructionIcon
+        _enumFooterIcon = enumFooterIcon
+        _intButtonsDisabledDelay = intButtonsDisabledDelay
+
+    End Sub
+
+#End Region
+
 #Region " Public Properties "
 
     ''' <summary>
@@ -205,26 +225,6 @@ Public Class CustomDialog
             _strInstructionText = Value
         End Set
     End Property
-
-#End Region
-
-#Region " Constructors "
-
-
-    Public Sub New(ByVal strCaption As String, ByVal strInstructionHeading As String, ByVal strInstructionText As String, ByVal strAdditionalDetailsText As String, ByVal strFooterText As String, ByVal enumButtons As CustomDialogWindow.CustomDialogButtons, ByVal enumDefaultButton As CustomDialogWindow.CustomDialogResults, ByVal enumInstructionIcon As CustomDialogWindow.CustomDialogIcons, ByVal enumFooterIcon As CustomDialogWindow.CustomDialogIcons, Optional ByVal intButtonsDisabledDelay As Integer = 0)
-
-        _strCaption = strCaption
-        _strInstructionHeading = strInstructionHeading
-        _strInstructionText = strInstructionText
-        _strAdditionalDetailsText = strAdditionalDetailsText
-        _strFooterText = strFooterText
-        _enumButtons = enumButtons
-        _enumDefaultButton = enumDefaultButton
-        _enumInstructionIcon = enumInstructionIcon
-        _enumFooterIcon = enumFooterIcon
-        _intButtonsDisabledDelay = intButtonsDisabledDelay
-
-    End Sub
 
 #End Region
 

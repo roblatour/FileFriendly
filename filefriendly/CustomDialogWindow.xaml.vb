@@ -34,6 +34,8 @@ Public Class CustomDialogWindow
 
 #End Region
 
+#Region " Constructors "
+
     Public Sub New()
 
         ' This call is required by the Windows Form Designer.
@@ -42,19 +44,6 @@ Public Class CustomDialogWindow
         ' Add any initialization after the InitializeComponent() call.
 
     End Sub
-
-
-#Region " Public Properties "
-
-    Public ReadOnly Property CustomDialogResult() As CustomDialogResults
-        Get
-            Return _enumCustomDialogResult
-        End Get
-    End Property
-
-#End Region
-
-#Region " Constructors "
 
     Public Sub New(ByVal intButtonsDisabledDelay As Integer)
         InitializeComponent()
@@ -70,6 +59,16 @@ Public Class CustomDialogWindow
         _intButtonsDisabledDelay = intButtonsDisabledDelay
 
     End Sub
+
+#End Region
+
+#Region " Public Properties "
+
+    Public ReadOnly Property CustomDialogResult() As CustomDialogResults
+        Get
+            Return _enumCustomDialogResult
+        End Get
+    End Property
 
 #End Region
 
@@ -231,6 +230,38 @@ Public Class CustomDialogWindow
 
     Private Sub CustomDialogWindow_SizeChanged(ByVal sender As Object, ByVal e As System.Windows.SizeChangedEventArgs) Handles Me.SizeChanged
         Me.UpdateLayout()
+    End Sub
+
+    Private Sub CustomDialogWindow_PreviewKeyDown(ByVal sender As Object, ByVal e As System.Windows.Input.KeyEventArgs) Handles Me.PreviewKeyDown
+        If e.Key <> System.Windows.Input.Key.Left AndAlso e.Key <> System.Windows.Input.Key.Right Then Return
+
+        Dim buttons As New List(Of System.Windows.Controls.Button)
+
+        If btnYes.IsVisible AndAlso btnYes.IsEnabled Then buttons.Add(btnYes)
+        If btnNo.IsVisible AndAlso btnNo.IsEnabled Then buttons.Add(btnNo)
+        If btnOK.IsVisible AndAlso btnOK.IsEnabled Then buttons.Add(btnOK)
+        If btnCancel.IsVisible AndAlso btnCancel.IsEnabled Then buttons.Add(btnCancel)
+
+        If buttons.Count < 2 Then Return
+
+        Dim focusedButton As System.Windows.Controls.Button = TryCast(System.Windows.Input.Keyboard.FocusedElement, System.Windows.Controls.Button)
+        Dim currentIndex As Integer = buttons.IndexOf(focusedButton)
+
+        If currentIndex = -1 Then
+            buttons(0).Focus()
+            e.Handled = True
+            Return
+        End If
+
+        Dim nextIndex As Integer
+        If e.Key = System.Windows.Input.Key.Left Then
+            nextIndex = (currentIndex - 1 + buttons.Count) Mod buttons.Count
+        Else
+            nextIndex = (currentIndex + 1) Mod buttons.Count
+        End If
+
+        buttons(nextIndex).Focus()
+        e.Handled = True
     End Sub
 
 End Class

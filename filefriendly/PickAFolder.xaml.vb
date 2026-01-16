@@ -1,5 +1,9 @@
 ﻿Partial Public Class PickAFolder
     Private Const ForwardSlashCharacter As Char = "\"c
+    Private Const BackspaceTag As String = "*Backspace*"
+    Private Const AbcTag As String = "*ABC*"
+    Private Const SpaceTag As String = "*Space*"
+    Private Const BackspaceGlyph As String = "←"
     Private OriginalGuidelineHeight As Double
 
     Private OriginalGrid1Margin As System.Windows.Thickness
@@ -10,15 +14,24 @@
     Private WindowDockingInProgress As Boolean = False
 
     Private QuickFilterWord As String = ""
-    Private Const BackspaceTag As String = "*Backspace*"
-    Private Const AbcTag As String = "*ABC*"
-    Private Const SpaceTag As String = "*Space*"
-    Private Const BackspaceGlyph As String = "←"
     Private _numericMode As Boolean = False
     Private _lastButton As Button = Nothing
 
     ' Flag used to suppress TreeView selection handling while rebuilding items
     Private _isLoadingTreeView As Boolean = False
+
+    Private RefreshPickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf RefreshPickAFolderWindowNow)
+    Private HidePickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf HidePickAFolderWindowNow)
+    Private ShowPickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf ShowPickAFolderWindowNow)
+    Private MakePickAFolderWindowTopMost As New System.Windows.Forms.MethodInvoker(AddressOf MakePickAFolderWindowTopMostNow)
+    Private MovePickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf MovePickAFolderWindowNow)
+    Private UpdateRecommendations As New System.Windows.Forms.MethodInvoker(AddressOf ResetLookOfWindow)
+    Private UpdateQuickFilter As New System.Windows.Forms.MethodInvoker(AddressOf UpdateQuickFilterNow)
+
+    Public intRecommendation1 As Integer = -1
+    Public intRecommendation2 As Integer = -1
+    Public intRecommendation3 As Integer = -1
+    Public intRecommendation4 As Integer = -1
 
     Public Sub New()
 
@@ -53,7 +66,32 @@
     Public Sub SafelyRefreshPickAFolderWindow()
         Call Dispatcher.BeginInvoke(RefreshPickAFolderWindow)
     End Sub
-    Private RefreshPickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf RefreshPickAFolderWindowNow)
+
+    Public Sub SafelyHidePickAFolderWindow()
+        Call Dispatcher.BeginInvoke(HidePickAFolderWindow)
+    End Sub
+
+    Public Sub SafelyShowPickAFolderWindow()
+        Call Dispatcher.BeginInvoke(ShowPickAFolderWindow)
+    End Sub
+
+    Public Sub SafelyMakePickAFolderWindowTopMost()
+        Call Dispatcher.BeginInvoke(MakePickAFolderWindowTopMost)
+    End Sub
+
+    Public Sub SafelyMovePickAFolderWindow()
+        Call Dispatcher.BeginInvoke(MovePickAFolderWindow)
+    End Sub
+
+    Public Sub UpdateRecommendationsOnPickAFolderWindow()
+        Call Dispatcher.BeginInvoke(UpdateRecommendations)
+    End Sub
+
+    Public Sub SafelyUpdateQuickFilter()
+        Call Dispatcher.BeginInvoke(UpdateQuickFilter)
+    End Sub
+
+
     Private Sub RefreshPickAFolderWindowNow()
         If QuickFilterWord.Length = 0 Then
             LoadTreeView("None")
@@ -62,27 +100,14 @@
         End If
     End Sub
 
-    Public Sub SafelyHidePickAFolderWindow()
-        Call Dispatcher.BeginInvoke(HidePickAFolderWindow)
-    End Sub
-    Private HidePickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf HidePickAFolderWindowNow)
     Private Sub HidePickAFolderWindowNow()
         Me.Hide()
     End Sub
 
-    Public Sub SafelyShowPickAFolderWindow()
-        Call Dispatcher.BeginInvoke(ShowPickAFolderWindow)
-    End Sub
-    Private ShowPickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf ShowPickAFolderWindowNow)
     Private Sub ShowPickAFolderWindowNow()
         Me.Show()
     End Sub
 
-
-    Public Sub SafelyMakePickAFolderWindowTopMost()
-        Call Dispatcher.BeginInvoke(MakePickAFolderWindowTopMost)
-    End Sub
-    Private MakePickAFolderWindowTopMost As New System.Windows.Forms.MethodInvoker(AddressOf MakePickAFolderWindowTopMostNow)
 
     Private Sub MakePickAFolderWindowTopMostNow()
 
@@ -119,10 +144,6 @@
 
     End Sub
 
-    Public Sub SafelyMovePickAFolderWindow()
-        Call Dispatcher.BeginInvoke(MovePickAFolderWindow)
-    End Sub
-    Private MovePickAFolderWindow As New System.Windows.Forms.MethodInvoker(AddressOf MovePickAFolderWindowNow)
     Private Sub MovePickAFolderWindowNow()
 
         PlaceWindow()
@@ -211,16 +232,6 @@
 
 
     End Sub
-
-    Public intRecommendation1 As Integer = -1
-    Public intRecommendation2 As Integer = -1
-    Public intRecommendation3 As Integer = -1
-    Public intRecommendation4 As Integer = -1
-
-    Public Sub UpdateRecommendationsOnPickAFolderWindow()
-        Call Dispatcher.BeginInvoke(UpdateRecommendations)
-    End Sub
-    Private UpdateRecommendations As New System.Windows.Forms.MethodInvoker(AddressOf ResetLookOfWindow)
 
     Private Sub ResetLookOfWindow()
 
@@ -532,10 +543,6 @@
         ProcessKeyDown(e)
     End Sub
 
-    Public Sub SafelyUpdateQuickFilter()
-        Call Dispatcher.BeginInvoke(UpdateQuickFilter)
-    End Sub
-    Private UpdateQuickFilter As New System.Windows.Forms.MethodInvoker(AddressOf UpdateQuickFilterNow)
     Private Sub UpdateQuickFilterNow()
 
         ProcessIncomingText(gSentText)
@@ -946,6 +953,7 @@
 
                     Nodes(x) = New TreeViewItem
                     Nodes(x).Header = CurrentFolderName
+
                     Nodes(x).Tag = WorkingFoldersNameTable(x)
                     Nodes(x).IsExpanded = True
 

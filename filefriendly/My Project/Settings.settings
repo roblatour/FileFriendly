@@ -65,8 +65,14 @@
     <Setting Name="MainWidth" Type="System.Double" Scope="User">
       <Value Profile="(Default)">800</Value>
     </Setting>
+    <Setting Name="MainHeight" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">600</Value>
+    </Setting>
     <Setting Name="FoldersWidth" Type="System.Double" Scope="User">
       <Value Profile="(Default)">550</Value>
+    </Setting>
+    <Setting Name="FoldersHeight" Type="System.Double" Scope="User">
+      <Value Profile="(Default)">760</Value>
     </Setting>
     <Setting Name="MainTop" Type="System.Double" Scope="User">
       <Value Profile="(Default)">100</Value>
@@ -106,6 +112,12 @@
     </Setting>
     <Setting Name="AutoChainSelect" Type="System.Boolean" Scope="User">
       <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="ConfirmToggle" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">False</Value>
+    </Setting>
+    <Setting Name="KeepHiddenEmailsHidden" Type="System.Boolean" Scope="User">
+      <Value Profile="(Default)">True</Value>
     </Setting>
   </Settings>
 </SettingsFile>

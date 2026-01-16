@@ -1,4 +1,4 @@
-﻿Imports System.Windows.Threading
+Imports System.Windows.Threading
 
 Module modSharedDataAndRoutines
 
@@ -40,8 +40,6 @@ Module modSharedDataAndRoutines
     Friend gWindowDocked As Boolean = True
     Friend gPickAFolderWindowWasDocedWhenMainWindowWasMaximimized As Boolean = True
     Friend gSentText As String
-
-    Friend gCurrentSortOrder As String = "Subject"
 
     Friend gFolderTableIndex As Integer = 0
     Friend Const gFolderTableIncrement As Integer = 1000
@@ -104,9 +102,16 @@ Module modSharedDataAndRoutines
 
     Friend gPickFromContextMenuOverride As Integer = -1
 
-    'Shared Routines
+    Friend ShiftOn As Boolean = False
+    Friend CtrlOn As Boolean = False
+    Friend AltOn As Boolean = False
 
-#Region "Custom Message Box"
+    Friend MenuKeyStrokeOverRide As Boolean = False
+    Friend gProxyAction As String
+
+    Friend MainWindow As IntPtr
+    Friend PickAWindowHandle As IntPtr
+    Friend CustomDialogWindowHandle As IntPtr
 
     Friend Function ShowMessageBox(Optional ByVal Caption As String = "",
                               Optional ByVal InstructionalIcon As CustomDialog.CustomDialogIcons = CustomDialog.CustomDialogIcons.None,
@@ -146,8 +151,6 @@ Module modSharedDataAndRoutines
 
     End Function
 
-#End Region
-
     Friend Function LookupFolderNamesTableIndex(ByVal str As String) As Integer
 
         str = str.TrimStart("\")
@@ -158,15 +161,6 @@ Module modSharedDataAndRoutines
         End If
 
     End Function
-
-#Region "Process Key Strokes"
-
-    Friend ShiftOn As Boolean = False
-    Friend CtrlOn As Boolean = False
-    Friend AltOn As Boolean = False
-
-    Friend MenuKeyStrokeOverRide As Boolean = False
-    Friend gProxyAction As String
 
     Friend Sub ProcessKeyUp(ByVal e As System.Windows.Input.KeyEventArgs)
 
@@ -190,7 +184,7 @@ Module modSharedDataAndRoutines
             gMainWindow.SafelyPerformActionByProxy()
             Exit Sub
         End If
-        'Console.WriteLine(e.Key.ToString)
+        ' Console.WriteLine(e.Key.ToString)
 
         If (e.Key = Key.RightAlt) OrElse (e.Key = Key.LeftAlt) OrElse (e.Key = 156) Then
             MenuKeyStrokeOverRide = Not MenuKeyStrokeOverRide
@@ -310,16 +304,6 @@ Module modSharedDataAndRoutines
 
     End Sub
 
-#End Region
-
-#Region "Make A Form Top Most"
-
-    Private Declare Function SetWindowPos Lib "user32" (ByVal hwnd As Integer, ByVal hWndInsertAfter As Integer, ByVal x As Integer, ByVal y As Integer, ByVal cx As Integer, ByVal cy As Integer, ByVal wFlags As Integer) As Integer
-
-    Friend MainWindow As IntPtr
-    Friend PickAWindowHandle As IntPtr
-    Friend CustomDialogWindowHandle As IntPtr
-
     Friend Sub MakeTopMost(ByVal MakeTopMostFlag As Boolean, ByVal WindowHandle As IntPtr)
 
         'Me.BringIntoView()
@@ -343,10 +327,6 @@ Module modSharedDataAndRoutines
         End Try
 
     End Sub
-
-#End Region
-
-#Region "Check for Update"
 
     Friend Sub CheckIfNewVersionIsAvailable()
 
@@ -572,16 +552,9 @@ Module modSharedDataAndRoutines
 
     End Function
 
-#End Region
-
 #Region "Memory Management"
 
     Public Class MemoryManagement
-
-        Private Declare Function SetProcessWorkingSetSize Lib "kernel32.dll" (
-          ByVal process As IntPtr,
-          ByVal minimumWorkingSetSize As Integer,
-          ByVal maximumWorkingSetSize As Integer) As Integer
 
         Public Shared Sub FlushMemory()
 
@@ -601,8 +574,25 @@ Module modSharedDataAndRoutines
             End Try
         End Sub
 
+        Private Declare Function SetProcessWorkingSetSize Lib "kernel32.dll" (
+          ByVal process As IntPtr,
+          ByVal minimumWorkingSetSize As Integer,
+          ByVal maximumWorkingSetSize As Integer) As Integer
+
     End Class
 
 #End Region
+
+    Friend Sub DoEvents() ' replaces application.doevents in wpf
+
+        Try
+            Application.Current.Dispatcher.Invoke(DispatcherPriority.Background, New Action(Sub()
+                                                                                            End Sub))
+        Catch ex As Exception
+        End Try
+
+    End Sub
+
+    Private Declare Function SetWindowPos Lib "user32" (ByVal hwnd As Integer, ByVal hWndInsertAfter As Integer, ByVal x As Integer, ByVal y As Integer, ByVal cx As Integer, ByVal cy As Integer, ByVal wFlags As Integer) As Integer
 
 End Module

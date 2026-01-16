@@ -81,6 +81,9 @@
                         <!--<CheckBox Name="cbVeiwRead" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ViewRead}" Margin="7,158,17,26" Foreground="Brown">_View read</CheckBox>
                         <CheckBox Name="cbViewUnread" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ViewUnRead}" Margin="7,0,16,6" Foreground="Brown" Height="18" VerticalAlignment="Bottom">Vie_w unread</CheckBox>-->
                         <Button Height="21" Margin="23,70.035,19,0" Name="btnFoldersToScan" Width="100" VerticalAlignment="Top">Folders to sca_n</Button>
+                        <CheckBox Name="cbKeepHiddenEmailsHidden" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=KeepHiddenEmailsHidden}" Margin="7,95,17,0" Foreground="Brown" Height="67" Padding="4,0,0,0" VerticalAlignment="Top">
+                            <AccessText TextWrapping="Wrap" Text="Keep hiding previously hidden e-mails" Foreground="Brown" Height="67" />
+                        </CheckBox>
                         <!--<CheckBox Foreground="Brown" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ViewInbox}" Margin="7,98,17,86" Name="cbViewInbox">View _inbox</CheckBox>
                         <CheckBox Foreground="Brown" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ViewSent}" Margin="7,0,17,66" Name="cbViewSent" Height="18" VerticalAlignment="Bottom">View sen_t items</CheckBox>
                         <CheckBox Foreground="Brown" IsChecked="{Binding Source={x:Static self:MySettings.Default}, Path=ViewAll}" Margin="7,0,17,46" Name="cbViewFolders" Height="18" VerticalAlignment="Bottom">_View folders</CheckBox>-->

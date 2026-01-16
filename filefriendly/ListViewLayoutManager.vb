@@ -6,13 +6,6 @@ Namespace ListViewLayout
     ' Attached behavior that manages proportional/fixed/fill columns.
     Public Class ListViewLayoutManager
 
-        Public Shared ReadOnly EnabledProperty As DependencyProperty =
-            DependencyProperty.RegisterAttached(
-                "Enabled",
-                GetType(Boolean),
-                GetType(ListViewLayoutManager),
-                New FrameworkPropertyMetadata(New PropertyChangedCallback(AddressOf OnLayoutManagerEnabledChanged)))
-
         Private ReadOnly _listView As ListView
         Private _scrollViewer As ScrollViewer
         Private _loaded As Boolean
@@ -28,6 +21,13 @@ Namespace ListViewLayout
             AddHandler _listView.Loaded, AddressOf ListViewLoaded
             AddHandler _listView.Unloaded, AddressOf ListViewUnloaded
         End Sub
+
+        Public Shared ReadOnly EnabledProperty As DependencyProperty =
+            DependencyProperty.RegisterAttached(
+                "Enabled",
+                GetType(Boolean),
+                GetType(ListViewLayoutManager),
+                New FrameworkPropertyMetadata(New PropertyChangedCallback(AddressOf OnLayoutManagerEnabledChanged)))
 
         Public Shared Sub SetEnabled(d As DependencyObject, value As Boolean)
             d.SetValue(EnabledProperty, value)
@@ -403,14 +403,14 @@ Namespace ListViewLayout
     Public NotInheritable Class FixedColumn
         Inherits LayoutColumn
 
+        Private Sub New()
+        End Sub
+
         Public Shared ReadOnly WidthProperty As DependencyProperty =
             DependencyProperty.RegisterAttached(
                 "Width",
                 GetType(Double),
                 GetType(FixedColumn))
-
-        Private Sub New()
-        End Sub
 
         Public Shared Function GetWidth(obj As DependencyObject) As Double
             Return CDbl(obj.GetValue(WidthProperty))
@@ -440,14 +440,14 @@ Namespace ListViewLayout
     Public NotInheritable Class ProportionalColumn
         Inherits LayoutColumn
 
+        Private Sub New()
+        End Sub
+
         Public Shared ReadOnly WidthProperty As DependencyProperty =
             DependencyProperty.RegisterAttached(
                 "Width",
                 GetType(Double),
                 GetType(ProportionalColumn))
-
-        Private Sub New()
-        End Sub
 
         Public Shared Function GetWidth(obj As DependencyObject) As Double
             Return CDbl(obj.GetValue(WidthProperty))
@@ -472,6 +472,9 @@ Namespace ListViewLayout
     Public NotInheritable Class RangeColumn
         Inherits LayoutColumn
 
+        Private Sub New()
+        End Sub
+
         Public Shared ReadOnly MinWidthProperty As DependencyProperty =
             DependencyProperty.RegisterAttached(
                 "MinWidth",
@@ -489,9 +492,6 @@ Namespace ListViewLayout
                 "IsFillColumn",
                 GetType(Boolean),
                 GetType(RangeColumn))
-
-        Private Sub New()
-        End Sub
 
         Public Shared Function GetMinWidth(obj As DependencyObject) As Double
             Return CDbl(obj.GetValue(MinWidthProperty))

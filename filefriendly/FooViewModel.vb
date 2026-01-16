@@ -15,6 +15,7 @@ Namespace TreeViewWithCheckBoxes
         Public _Children As List(Of FooViewModel)
         Public _IsInitiallySelected As System.Nullable(Of Boolean) = False
         Public _isChecked As System.Nullable(Of Boolean) = False
+        Public _IsEnabled As Boolean = True
 
         Structure WorkingTableStructure
             Dim Level As Integer
@@ -26,7 +27,88 @@ Namespace TreeViewWithCheckBoxes
 
 #End Region
 
-#Region "CreateFoos"
+        Private Sub New(ByVal name As String, ByVal fullpathname As String, ByVal checked As System.Nullable(Of Boolean), ByVal enabled As Boolean)
+
+            Me.Name = name
+            Me.FullPathName = fullpathname
+            Me.IsEnabled = enabled
+            Me.IsChecked = checked
+            Me.Children = New List(Of FooViewModel)
+
+        End Sub
+
+        Public Event PropertyChanged As PropertyChangedEventHandler Implements INotifyPropertyChanged.PropertyChanged
+
+#Region "Properties"
+
+        Public Property Children() As List(Of FooViewModel)
+            Get
+                Return Me._Children
+            End Get
+            Private Set(ByVal value As List(Of FooViewModel))
+                Me._Children = value
+            End Set
+        End Property
+
+        Public Property IsInitiallySelected() As Boolean
+            Get
+                Return Me._IsInitiallySelected
+            End Get
+            Set(ByVal value As Boolean)
+                Me._IsInitiallySelected = value
+            End Set
+        End Property
+
+        Public Property Name() As String
+            Get
+                Return Me._Name
+            End Get
+            Set(ByVal value As String)
+                Me._Name = value
+            End Set
+        End Property
+
+        Public Property FullPathName() As String
+            Get
+                Return Me._FullPathName
+            End Get
+            Set(ByVal value As String)
+                Me._FullPathName = value
+            End Set
+        End Property
+
+        Public Property IsEnabled() As Boolean
+            Get
+                Return Me._IsEnabled
+            End Get
+            Set(ByVal value As Boolean)
+                If Me._IsEnabled <> value Then
+                    Me._IsEnabled = value
+                    Me.NotifyPropertyChanged("IsEnabled")
+                End If
+            End Set
+        End Property
+
+#Region "IsChecked"
+
+        ' Gets/sets the state of the associated UI toggle (ex. CheckBox).
+        ' The return value is calculated based on the check state of all
+        ' child FooViewModels.  Setting this property to true or false
+        ' will set all children to the same check state, and setting it 
+        ' to any value will cause the parent to verify its check state.
+
+        Public Property IsChecked() As System.Nullable(Of Boolean)
+            Get
+                Return _isChecked
+            End Get
+            Set(ByVal value As System.Nullable(Of Boolean))
+                Me.SetIsChecked(value, True, True)
+            End Set
+        End Property
+
+#End Region
+
+#End Region
 
         Public Shared Function CreateFoos() As List(Of FooViewModel)
 
@@ -123,8 +205,8 @@ Namespace TreeViewWithCheckBoxes
                     End If
                 End If
 
-                Dim MasterChildList As List(Of FooViewModel) = ReturnAllChildren(0, WorkingTable.Length - 1)
-                Dim Root As New FooViewModel("All Folders", "*All Folders*", RootShouldBeChecked) With {.IsInitiallySelected = False, .Children = MasterChildList}
+                Dim MasterChildList As List(Of FooViewModel) = ReturnAllChildren(0, WorkingTable.Length - 1, False)
+                Dim Root As New FooViewModel("All Folders", "*All Folders*", RootShouldBeChecked, True) With {.IsInitiallySelected = False, .Children = MasterChildList}
                 Root.FullPathName = "*start*"
 
                 Root.IsInitiallySelected = True
@@ -138,8 +220,7 @@ Namespace TreeViewWithCheckBoxes
 
         End Function
 
-
-        Public Shared Function ReturnAllChildren(ByVal StartRecord As Integer, ByRef EndRecord As Integer) As List(Of FooViewModel)
+        Public Shared Function ReturnAllChildren(ByVal StartRecord As Integer, ByRef EndRecord As Integer, ByVal parentDisabled As Boolean) As List(Of FooViewModel)
 
             Static Dim MostAdvancedCounter As Integer
 
@@ -153,11 +234,18 @@ Namespace TreeViewWithCheckBoxes
 
                 If WorkingTable(i).Level = WorkingTable(StartRecord).Level Then
 
+                    Dim currentFullPath As String = WorkingTable(i).FullPathName
+                    Dim isDisabled As Boolean = IsFolderDisabled(currentFullPath, parentDisabled)
+                    Dim initialChecked As System.Nullable(Of Boolean) = WorkingTable(i).IsChecked
+                    If isDisabled Then
+                        initialChecked = False
+                    End If
+
                     If WorkingTable(i + 1).Level > WorkingTable(StartRecord).Level Then
                         'use recursion to find additional child records under current record
-                        ChildList.Add(New FooViewModel(WorkingTable(i).FolderName, WorkingTable(i).FullPathName, WorkingTable(i).IsChecked) With {.IsInitiallySelected = False, .Children = ReturnAllChildren(i + 1, EndRecord)})
+                        ChildList.Add(New FooViewModel(WorkingTable(i).FolderName, currentFullPath, initialChecked, Not isDisabled) With {.IsInitiallySelected = False, .Children = ReturnAllChildren(i + 1, EndRecord, isDisabled)})
                     Else
-                        ChildList.Add(New FooViewModel(WorkingTable(i).FolderName, WorkingTable(i).FullPathName, WorkingTable(i).IsChecked))
+                        ChildList.Add(New FooViewModel(WorkingTable(i).FolderName, currentFullPath, initialChecked, Not isDisabled))
                     End If
 
                 Else
@@ -173,114 +261,6 @@ Namespace TreeViewWithCheckBoxes
             Return ChildList
 
         End Function
-
-        Private Sub New(ByVal name As String, ByVal fullpathname As String, ByVal checked As System.Nullable(Of Boolean))
-
-            Me.Name = name
-            Me.FullPathName = fullpathname
-            Me.IsChecked = checked
-            Me.Children = New List(Of FooViewModel)
-
-        End Sub
-
-        Private Sub Initialize()
-
-            For Each child As FooViewModel In Me.Children
-                child._Parent = Me
-                child.Initialize()
-            Next child
-
-            If Me.Children.Count > 0 Then
-                VerifyCheckState()
-            End If
-
-        End Sub
-
-
-#End Region
-
-
-#Region "INotifyPropertyChanged Members"
-
-        'original
-        'Private Sub OnPropertyChanged(ByVal prop As String)
-        '    RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs(prop))
-        'End Sub
-        'Public Event PropertyChanged As PropertyChangedEventHandler
-
-        'Public Sub PropertyChanged(ByVal sender As Object, ByVal e As System.ComponentModel.INotifyPropertyChanged)
-        '    'RaiseEvent xxPropertyChanged(Me, New PropertyChangedEventArgs(sender))
-        'End Sub
-
-
-        ' End Sub
-        'Public Event PropertyChanged As PropertyChangedEventHandler
-
-
-        Public Event PropertyChanged As PropertyChangedEventHandler Implements INotifyPropertyChanged.PropertyChanged
-
-        Public Sub NotifyPropertyChanged(ByVal prop As String)
-            RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs(prop))
-        End Sub
-
-#End Region
-
-#Region "Properties"
-
-        Public Property Children() As List(Of FooViewModel)
-            Get
-                Return Me._Children
-            End Get
-            Private Set(ByVal value As List(Of FooViewModel))
-                Me._Children = value
-            End Set
-        End Property
-
-        Public Property IsInitiallySelected() As Boolean
-            Get
-                Return Me._IsInitiallySelected
-            End Get
-            Set(ByVal value As Boolean)
-                Me._IsInitiallySelected = value
-            End Set
-        End Property
-
-        Public Property Name() As String
-            Get
-                Return Me._Name
-            End Get
-            Set(ByVal value As String)
-                Me._Name = value
-            End Set
-        End Property
-
-
-        Public Property FullPathName() As String
-            Get
-                Return Me._FullPathName
-            End Get
-            Set(ByVal value As String)
-                Me._FullPathName = value
-            End Set
-        End Property
-
-#Region "IsChecked"
-
-
-        ' Gets/sets the state of the associated UI toggle (ex. CheckBox).
-        ' The return value is calculated based on the check state of all
-        ' child FooViewModels.  Setting this property to true or false
-        ' will set all children to the same check state, and setting it 
-        ' to any value will cause the parent to verify its check state.
-
-        Public Property IsChecked() As System.Nullable(Of Boolean)
-            Get
-                Return _isChecked
-            End Get
-            Set(ByVal value As System.Nullable(Of Boolean))
-                Me.SetIsChecked(value, True, True)
-            End Set
-        End Property
 
         Public Sub SetIsChecked(ByVal value As System.Nullable(Of Boolean), ByVal updateChildren As Boolean, ByVal updateParent As Boolean)
 
@@ -304,38 +284,6 @@ Namespace TreeViewWithCheckBoxes
             Me.NotifyPropertyChanged("IsChecked")
         End Sub
 
-        'Private Shared Sub CheckChildren(ByVal _isChecked As System.Nullable(Of Boolean), ByVal o As Object)
-
-        '    Try
-
-        '        If o Is Nothing Then Exit Try
-
-        '        For i As Integer = 0 To o.count - 1
-        '            Console.WriteLine(o(i).name.ToString)
-        '            If o(i).name = "Bills" Then
-        '                Dim x As Integer = 123
-        '            End If
-
-        '            If o(i).children Is Nothing Then
-        '                o(i).IsChecked = _isChecked
-        '            Else
-        '                If o(i).children.count > 0 Then
-        '                    CheckChildren(_isChecked, o(i).Children)
-        '                    o(i).IsChecked = _isChecked
-        '                Else
-        '                    o(i).IsChecked = _isChecked
-        '                End If
-        '            End If
-
-        '        Next
-
-        '    Catch ex As Exception
-        '    End Try
-
-        'End Sub
-
-
-
         Public Sub VerifyCheckState()
             Dim state As System.Nullable(Of Boolean) = Nothing
             For i As Integer = 0 To Me.Children.Count - 1
@@ -351,11 +299,39 @@ Namespace TreeViewWithCheckBoxes
             Me.SetIsChecked(state, False, True)
         End Sub
 
-#End Region
+        Public Sub NotifyPropertyChanged(ByVal prop As String)
+            RaiseEvent PropertyChanged(Me, New PropertyChangedEventArgs(prop))
+        End Sub
 
-#End Region
+        Private Shared Function IsFolderDisabled(ByVal fullPath As String, ByVal parentDisabled As Boolean) As Boolean
+            If parentDisabled Then
+                Return True
+            End If
+
+            Dim idx As Integer = LookupFolderNamesTableIndex(fullPath)
+            If idx >= 0 Then
+                Dim ft As FolderTableType = gFolderTable(idx).FolderType
+                If (ft = FolderTableType.Inbox) OrElse (ft = FolderTableType.SentItems) Then
+                    Return True
+                End If
+            End If
+
+            Return False
+        End Function
+
+        Private Sub Initialize()
+
+            For Each child As FooViewModel In Me.Children
+                child._Parent = Me
+                child.Initialize()
+            Next child
+
+            If Me.Children.Count > 0 Then
+                VerifyCheckState()
+            End If
+
+        End Sub
 
     End Class
 
 End Namespace
-

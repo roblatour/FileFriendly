@@ -13,7 +13,7 @@
        e.Exception.Message.IndexOf("Width and Height must be non-negative.", StringComparison.OrdinalIgnoreCase) >= 0 Then
 
             ' Optionally log it somewhere:
-            System.Diagnostics.Debug.WriteLine(e.Exception.ToString())
+            Console.WriteLine(e.Exception.ToString())
 
             ' Mark as handled so WPF doesn't crash the app.
             e.Handled = True
@@ -38,7 +38,7 @@
             End Try
 
         Catch ex As Exception
-            Console.WriteLine(ex.Message)
+            ' Console.WriteLine(ex.Message)
         End Try
 
         outlookVersion = If(outlookVersion, "").Trim()

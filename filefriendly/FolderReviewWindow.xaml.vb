@@ -28,12 +28,70 @@
         "Yammer Root"
     }
 
+    Private Shared strCollection As System.Collections.Specialized.StringCollection
+
     Public Sub New()
 
         ' This call is required by the Windows Form Designer.
         InitializeComponent()
 
         ' Add any initialization after the InitializeComponent() call.
+
+    End Sub
+
+    Private Shared Sub DumpTreeView(ByVal Branch As TreeViewWithCheckBoxes.FooViewModel)
+        ' uses recursion (I'm so proud)
+
+        If Branch.IsChecked Then
+        Else
+            strCollection.Add(Branch.FullPathName)
+        End If
+
+        For Each Child As TreeViewWithCheckBoxes.FooViewModel In Branch.Children
+            DumpTreeView(Child)
+        Next
+
+    End Sub
+
+    Private Shared Sub ApplyRecommendedSelection(ByVal branch As TreeViewWithCheckBoxes.FooViewModel,
+                                                 ByVal excluded As System.Collections.Generic.HashSet(Of String),
+                                                 ByVal excludedSubtrees As System.Collections.Generic.HashSet(Of String),
+                                                 ByVal parentInExcludedSubtree As Boolean)
+
+        Dim folderName As String = branch.Name
+
+        If Not branch.IsEnabled Then
+            branch.IsChecked = False
+            For Each child As TreeViewWithCheckBoxes.FooViewModel In branch.Children
+                ApplyRecommendedSelection(child, excluded, excludedSubtrees, True)
+            Next
+            Return
+        End If
+
+        Dim thisIsExcludedSubtreeRoot As Boolean = False
+        If folderName IsNot Nothing AndAlso excludedSubtrees.Contains(folderName) Then
+            thisIsExcludedSubtreeRoot = True
+        End If
+
+        Dim inExcludedSubtree As Boolean = parentInExcludedSubtree OrElse thisIsExcludedSubtreeRoot
+
+        If inExcludedSubtree Then
+
+            branch.IsChecked = False
+
+        Else
+
+            If folderName IsNot Nothing AndAlso excluded.Contains(folderName) Then
+                branch.IsChecked = False
+            Else
+                branch.IsChecked = True
+            End If
+
+        End If
+
+        For Each child As TreeViewWithCheckBoxes.FooViewModel In branch.Children
+            ApplyRecommendedSelection(child, excluded, excludedSubtrees, inExcludedSubtree)
+        Next
 
     End Sub
 
@@ -97,22 +155,6 @@
 
     End Sub
 
-    Private Shared strCollection As System.Collections.Specialized.StringCollection
-
-    Private Shared Sub DumpTreeView(ByVal Branch As TreeViewWithCheckBoxes.FooViewModel)
-        ' uses recursion (I'm so proud)
-
-        If Branch.IsChecked Then
-        Else
-            strCollection.Add(Branch.FullPathName)
-        End If
-
-        For Each Child As TreeViewWithCheckBoxes.FooViewModel In Branch.Children
-            DumpTreeView(Child)
-        Next
-
-    End Sub
-
     Private Sub imgClose_MouseDown(ByVal sender As Object, ByVal e As System.Windows.Input.MouseButtonEventArgs) Handles imgClose.MouseDown
         Me.Close()
     End Sub
@@ -132,7 +174,6 @@
                 Exit Sub
             End If
 
-            ' Build look ups for excluded single folders and entire sub-trees.
             Dim excluded As New System.Collections.Generic.HashSet(Of String)(
                 RecommendedExcludedFolderNames,
                 System.StringComparer.OrdinalIgnoreCase)
@@ -158,41 +199,35 @@
 
     End Sub
 
-    Private Shared Sub ApplyRecommendedSelection(ByVal branch As TreeViewWithCheckBoxes.FooViewModel,
-                                                 ByVal excluded As System.Collections.Generic.HashSet(Of String),
-                                                 ByVal excludedSubtrees As System.Collections.Generic.HashSet(Of String),
-                                                 ByVal parentInExcludedSubtree As Boolean)
+    Private Sub FolderReviewWindow_PreviewKeyDown(ByVal sender As Object, ByVal e As System.Windows.Input.KeyEventArgs) Handles Me.PreviewKeyDown
+        If e.Key <> System.Windows.Input.Key.Left AndAlso e.Key <> System.Windows.Input.Key.Right Then Return
 
-        Dim folderName As String = branch.Name
+        Dim buttons As New List(Of System.Windows.Controls.Button)
 
-        ' If any ancestor is an excluded-sub-tree folder, everything below is unchecked.
-        Dim thisIsExcludedSubtreeRoot As Boolean = False
-        If folderName IsNot Nothing AndAlso excludedSubtrees.Contains(folderName) Then
-            thisIsExcludedSubtreeRoot = True
+        If btnCancel.IsVisible AndAlso btnCancel.IsEnabled Then buttons.Add(btnCancel)
+        If btnRecommended.IsVisible AndAlso btnRecommended.IsEnabled Then buttons.Add(btnRecommended)
+        If btnOK.IsVisible AndAlso btnOK.IsEnabled Then buttons.Add(btnOK)
+
+        If buttons.Count < 2 Then Return
+
+        Dim focusedButton As System.Windows.Controls.Button = TryCast(System.Windows.Input.Keyboard.FocusedElement, System.Windows.Controls.Button)
+        Dim currentIndex As Integer = buttons.IndexOf(focusedButton)
+
+        If currentIndex = -1 Then
+            buttons(0).Focus()
+            e.Handled = True
+            Return
         End If
 
-        Dim inExcludedSubtree As Boolean = parentInExcludedSubtree OrElse thisIsExcludedSubtreeRoot
-
-        If inExcludedSubtree Then
-
-            ' Under "Sync Issues" or "Yammer Root": always unchecked.
-            branch.IsChecked = False
-
+        Dim nextIndex As Integer
+        If e.Key = System.Windows.Input.Key.Left Then
+            nextIndex = (currentIndex - 1 + buttons.Count) Mod buttons.Count
         Else
-
-            ' Normal rule: everything checked except folders in RecommendedExcludedFolderNames.
-            If folderName IsNot Nothing AndAlso excluded.Contains(folderName) Then
-                branch.IsChecked = False
-            Else
-                branch.IsChecked = True
-            End If
-
+            nextIndex = (currentIndex + 1) Mod buttons.Count
         End If
 
-        For Each child As TreeViewWithCheckBoxes.FooViewModel In branch.Children
-            ApplyRecommendedSelection(child, excluded, excludedSubtrees, inExcludedSubtree)
-        Next
-
+        buttons(nextIndex).Focus()
+        e.Handled = True
     End Sub
 
 End Class

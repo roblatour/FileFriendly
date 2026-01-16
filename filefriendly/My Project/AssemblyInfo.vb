@@ -11,7 +11,7 @@ Imports System.Runtime.InteropServices
 <Assembly: AssemblyDescription("Quickly and easily file e-mails within Microsoft Outlook (R)")>
 <Assembly: AssemblyCompany("Filefriendly")>
 <Assembly: AssemblyProduct("Filefriendly")>
-<Assembly: AssemblyCopyright("Copyright @ Rob Latour 2025")>
+<Assembly: AssemblyCopyright("Copyright @ Rob Latour 2026")>
 <Assembly: AssemblyTrademark("")>
 <Assembly: ComVisible(false)>
 
@@ -51,5 +51,5 @@ Imports System.Runtime.InteropServices
 ' by using the '*' as shown below:
 ' <Assembly: AssemblyVersion("1.0.*")> 
 
-<Assembly: AssemblyVersion("2.2.0.0")>
-<Assembly: AssemblyFileVersion("2.2.0.0")>
+<Assembly: AssemblyVersion("2.4.0.0")>
+<Assembly: AssemblyFileVersion("2.4.0.0")>

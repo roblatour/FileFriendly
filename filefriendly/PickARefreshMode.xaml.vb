@@ -56,4 +56,34 @@
         Me.Close()
     End Sub
 
+    Private Sub PickARefreshMode_PreviewKeyDown(ByVal sender As Object, ByVal e As System.Windows.Input.KeyEventArgs) Handles Me.PreviewKeyDown
+        If e.Key <> System.Windows.Input.Key.Left AndAlso e.Key <> System.Windows.Input.Key.Right Then Return
+
+        Dim buttons As New List(Of System.Windows.Controls.Button)
+
+        If btnOK.IsVisible AndAlso btnOK.IsEnabled Then buttons.Add(btnOK)
+        If btnCancel.IsVisible AndAlso btnCancel.IsEnabled Then buttons.Add(btnCancel)
+
+        If buttons.Count < 2 Then Return
+
+        Dim focusedButton As System.Windows.Controls.Button = TryCast(System.Windows.Input.Keyboard.FocusedElement, System.Windows.Controls.Button)
+        Dim currentIndex As Integer = buttons.IndexOf(focusedButton)
+
+        If currentIndex = -1 Then
+            buttons(0).Focus()
+            e.Handled = True
+            Return
+        End If
+
+        Dim nextIndex As Integer
+        If e.Key = System.Windows.Input.Key.Left Then
+            nextIndex = (currentIndex - 1 + buttons.Count) Mod buttons.Count
+        Else
+            nextIndex = (currentIndex + 1) Mod buttons.Count
+        End If
+
+        buttons(nextIndex).Focus()
+        e.Handled = True
+    End Sub
+
 End Class

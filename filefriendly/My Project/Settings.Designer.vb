@@ -306,6 +306,18 @@ Namespace My
         
         <Global.System.Configuration.UserScopedSettingAttribute(),  _
          Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("600")>  _
+        Public Property MainHeight() As Double
+            Get
+                Return CType(Me("MainHeight"),Double)
+            End Get
+            Set
+                Me("MainHeight") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
          Global.System.Configuration.DefaultSettingValueAttribute("550")>  _
         Public Property FoldersWidth() As Double
             Get
@@ -313,6 +325,18 @@ Namespace My
             End Get
             Set
                 Me("FoldersWidth") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("760")>  _
+        Public Property FoldersHeight() As Double
+            Get
+                Return CType(Me("FoldersHeight"),Double)
+            End Get
+            Set
+                Me("FoldersHeight") = value
             End Set
         End Property
         
@@ -469,6 +493,30 @@ Namespace My
             End Get
             Set
                 Me("AutoChainSelect") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("False")>  _
+        Public Property ConfirmToggle() As Boolean
+            Get
+                Return CType(Me("ConfirmToggle"),Boolean)
+            End Get
+            Set
+                Me("ConfirmToggle") = value
+            End Set
+        End Property
+        
+        <Global.System.Configuration.UserScopedSettingAttribute(),  _
+         Global.System.Diagnostics.DebuggerNonUserCodeAttribute(),  _
+         Global.System.Configuration.DefaultSettingValueAttribute("True")>  _
+        Public Property KeepHiddenEmailsHidden() As Boolean
+            Get
+                Return CType(Me("KeepHiddenEmailsHidden"),Boolean)
+            End Get
+            Set
+                Me("KeepHiddenEmailsHidden") = value
             End Set
         End Property
     End Class
