@@ -37,7 +37,8 @@ the time you are used to.
 
 # Getting Started
 
-1.  Download and install File Friendly.
+1.  Download and install File Friendly from installer zip file found [here](https://github.com/roblatour/FileFriendly/releases/tag/2.4.0.0).
+
 
 2.  Launch the program and your Outlook folders and emails will be
     scanned and presented for easy management.
