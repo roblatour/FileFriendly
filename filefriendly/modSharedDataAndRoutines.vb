@@ -7,7 +7,7 @@ Module modSharedDataAndRoutines
     Friend ReadOnly gGithubWebPage As String = "https://github.com/roblatour/FileFriendly"
     Friend gHelpWebPage As String = "https://github.com/roblatour/FileFriendly/blob/main/Help/" ' the help filename be appended at startup
 
-    Private ReadOnly gCurrentVersionWebPage As String = "https://raw.githubusercontent.com/roblatour/FileFriendly/refs/heads/main/versionControl/currentversion.txt"
+    Private ReadOnly gCurrentVersionFromGithub As String = "https://api.github.com/repos/roblatour/FileFriendly/releases"
     Private ReadOnly gDownloadWebPage = "https://github.com/roblatour/FileFriendly/releases/latest"
 
     Friend gAppVersion As Version
@@ -421,6 +421,13 @@ Module modSharedDataAndRoutines
         ABeta = 2
         CanNotTellAtThisTime = 3
     End Enum
+
+    ' Class to deserialize GitHub release JSON
+    Friend Class GitHubRelease
+        Public Property tag_name As String
+        Public Property prerelease As Boolean
+        Public Property html_url As String
+    End Class
     Friend Function CheckFilefriendlyVersion() As ThisVersionIs
 
         'supports version format of up to: 99.99.99.99
@@ -428,7 +435,7 @@ Module modSharedDataAndRoutines
         Dim ReturnCode As ThisVersionIs = ThisVersionIs.CanNotTellAtThisTime
 
         Try
-
+            ' Get the current running version using reflection
             Dim strCurrentVersionRunning() As String = System.Windows.Forms.Application.ProductVersion.ToString.Split(".")
             Dim intCurrentVersionRunning(3) As Integer
             intCurrentVersionRunning(0) = CType(strCurrentVersionRunning(0), Integer)
@@ -436,70 +443,76 @@ Module modSharedDataAndRoutines
             intCurrentVersionRunning(2) = CType(strCurrentVersionRunning(2), Integer)
             intCurrentVersionRunning(3) = CType(strCurrentVersionRunning(3), Integer)
 
-            Dim strContentsOfWebFile As String = ""
+            ' Fetch releases from GitHub API
+            Dim myWebClient As New System.Net.WebClient
+            myWebClient.Headers.Add("User-Agent", "FileFriendly")
 
-            If strContentsOfWebFile.Length = 0 Then
-                Dim myWebClient As New System.Net.WebClient
-                Dim file As New System.IO.StreamReader(myWebClient.OpenRead(gCurrentVersionWebPage))
+            Dim releasesJson As String = myWebClient.DownloadString(gCurrentVersionFromGithub)
+            myWebClient.Dispose()
 
-                strContentsOfWebFile = file.ReadToEnd()
+            If String.IsNullOrEmpty(releasesJson) Then Exit Try
 
-                file.Close()
-                file.Dispose()
+            ' Deserialize JSON
+            Dim serializer As New System.Web.Script.Serialization.JavaScriptSerializer()
+            Dim releases As GitHubRelease() = serializer.Deserialize(Of GitHubRelease())(releasesJson)
 
-                myWebClient.Dispose()
+            If releases Is Nothing OrElse releases.Length = 0 Then Exit Try
 
+            ' Filter stable releases (not prerelease)
+            Dim stableReleases As New List(Of GitHubRelease)
+            For Each release In releases
+                If Not release.prerelease AndAlso Not String.IsNullOrEmpty(release.tag_name) Then
+                    stableReleases.Add(release)
+                End If
+            Next
+
+            If stableReleases.Count = 0 Then Exit Try
+
+            ' Get the latest stable release (first in the filtered list)
+            Dim latestStable As GitHubRelease = stableReleases(0)
+            Dim latestStableTag As String = latestStable.tag_name.TrimStart("v"c)
+
+            ' Parse the version from the tag
+            Dim strMostCurrentVersionOnFile() As String = latestStableTag.Split(".")
+            If strMostCurrentVersionOnFile.Length < 4 Then
+                ' Pad with zeros if needed
+                ReDim Preserve strMostCurrentVersionOnFile(3)
+                For i As Integer = 0 To 3
+                    If String.IsNullOrEmpty(strMostCurrentVersionOnFile(i)) Then
+                        strMostCurrentVersionOnFile(i) = "0"
+                    End If
+                Next
             End If
 
-            If strContentsOfWebFile.Length = 0 Then Exit Try
+            Dim intCurrentVersionOnFile(3) As Integer
+            intCurrentVersionOnFile(0) = CType(strMostCurrentVersionOnFile(0), Integer)
+            intCurrentVersionOnFile(1) = CType(strMostCurrentVersionOnFile(1), Integer)
+            intCurrentVersionOnFile(2) = CType(strMostCurrentVersionOnFile(2), Integer)
+            intCurrentVersionOnFile(3) = CType(strMostCurrentVersionOnFile(3), Integer)
 
-            Dim AllEntries() As String = Split(strContentsOfWebFile, vbCrLf)
-
-            Try
-
-                'Current version should be the top most record
-                Dim TopMostEntry As String = AllEntries(0)
-                Dim LineItems() As String
-                Dim strMostCurrentVersionOnFile() As String
-                Dim intCurrentVersionOnFile(3) As Integer
-
-                'Top most record should say 
-                'version x.x.x.x 
-                If TopMostEntry.StartsWith("version") Then
-                    LineItems = TopMostEntry.Split(" ")
-                    strMostCurrentVersionOnFile = LineItems(1).Split(".")
-                    intCurrentVersionOnFile(0) = CType(strMostCurrentVersionOnFile(0), Integer)
-                    intCurrentVersionOnFile(1) = CType(strMostCurrentVersionOnFile(1), Integer)
-                    intCurrentVersionOnFile(2) = CType(strMostCurrentVersionOnFile(2), Integer)
-                    intCurrentVersionOnFile(3) = CType(strMostCurrentVersionOnFile(3), Integer)
-                Else
-                    Exit Try
-                End If
-
-                Dim lCurrentVersionRunning As Long =
+            ' Compare versions
+            Dim lCurrentVersionRunning As Long =
                 intCurrentVersionRunning(0) * 1000000 +
                 intCurrentVersionRunning(1) * 10000 +
                 intCurrentVersionRunning(2) * 100 +
                 intCurrentVersionRunning(3)
 
-                Dim lCurrentVersionOnFile As Long =
+            Dim lCurrentVersionOnFile As Long =
                 intCurrentVersionOnFile(0) * 1000000 +
                 intCurrentVersionOnFile(1) * 10000 +
                 intCurrentVersionOnFile(2) * 100 +
                 intCurrentVersionOnFile(3)
 
-                If lCurrentVersionOnFile = lCurrentVersionRunning Then
-                    ReturnCode = ThisVersionIs.Current
-                ElseIf lCurrentVersionOnFile > lCurrentVersionRunning Then
-                    ReturnCode = ThisVersionIs.OutOfDate
-                Else
-                    ReturnCode = ThisVersionIs.ABeta
-                End If
-
-            Catch ex As Exception
-            End Try
+            If lCurrentVersionOnFile = lCurrentVersionRunning Then
+                ReturnCode = ThisVersionIs.Current
+            ElseIf lCurrentVersionOnFile > lCurrentVersionRunning Then
+                ReturnCode = ThisVersionIs.OutOfDate
+            Else
+                ReturnCode = ThisVersionIs.ABeta
+            End If
 
         Catch ex As Exception
+            ' If any error occurs, return CanNotTellAtThisTime
         End Try
 
         Return ReturnCode

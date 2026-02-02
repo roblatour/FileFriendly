@@ -127,6 +127,10 @@ Class MainWindow
 
     Private gStoreDeleteFolders As New Dictionary(Of String, StoreDeleteFolderInfo)(StringComparer.OrdinalIgnoreCase)
 
+    ' Store default folder EntryIDs for language-independent folder identification
+    Private gDefaultInboxEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Private gDefaultSentEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+
     ' Number of distinct Outlook mailboxes (stores) detected
     Private Shared _TotalMailBoxes As Integer = 0 ' number of mailboxes in Outlook PostOffice
 
@@ -2116,6 +2120,58 @@ CleanExit:
 
 #Region "Load Folder Table"
 
+    Private Sub BuildDefaultFolderMaps()
+
+        gDefaultInboxEntryIDs.Clear()
+        gDefaultSentEntryIDs.Clear()
+
+        If oNS Is Nothing Then Return
+
+        Try
+            Dim stores As Microsoft.Office.Interop.Outlook.Stores = oNS.Stores
+            If stores Is Nothing Then Return
+
+            For i As Integer = 1 To stores.Count
+                Dim store As Microsoft.Office.Interop.Outlook.Store = Nothing
+                Try
+                    store = stores.Item(i)
+                    If store Is Nothing Then Continue For
+
+                    Try
+                        Dim inboxFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderInbox)
+                        If inboxFolder IsNot Nothing Then
+                            gDefaultInboxEntryIDs.Add(inboxFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(inboxFolder)
+                        End If
+                    Catch
+                    End Try
+
+                    Try
+                        Dim sentFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderSentMail)
+                        If sentFolder IsNot Nothing Then
+                            gDefaultSentEntryIDs.Add(sentFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(sentFolder)
+                        End If
+                    Catch
+                    End Try
+
+                Finally
+                    If store IsNot Nothing Then
+                        System.Runtime.InteropServices.Marshal.ReleaseComObject(store)
+                        store = Nothing
+                    End If
+                End Try
+            Next
+
+            If stores IsNot Nothing Then
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(stores)
+            End If
+
+        Catch ex As Exception
+        End Try
+
+    End Sub
+
     Sub FindAllFolders()
 
         If gCancelRefresh Then Exit Sub
@@ -2123,6 +2179,8 @@ CleanExit:
         gScanningFolders = True
 
         Try
+
+            BuildDefaultFolderMaps()
 
             gFolderButtonsOnOptionsWindowEnabled = False
 
@@ -2172,22 +2230,20 @@ CleanExit:
                     Continue For
                 End If
 
-                Dim nameUpper As String = System.IO.Path.GetFileName(fInfo.FolderPath).Trim().ToUpperInvariant()
-
-                ' Track Inbox folders globally and per mailbox
-                If nameUpper = "INBOX" Then
+                ' Use language-independent folder identification via EntryID
+                If gDefaultInboxEntryIDs.Contains(fInfo.EntryID) Then
                     gFolderTable(x).FolderType = FolderTableType.Inbox
                     Continue For
                 End If
 
-                ' Track Sent folders globally and per mailbox
-                Select Case nameUpper
-                    Case "SENT", "SENT ITEMS", "SENT MAIL"
-                        gFolderTable(x).FolderType = FolderTableType.SentItems
-                        Continue For
-                End Select
+                If gDefaultSentEntryIDs.Contains(fInfo.EntryID) Then
+                    gFolderTable(x).FolderType = FolderTableType.SentItems
+                    Continue For
+                End If
 
                 gFolderTable(x).FolderType = FolderTableType.OtherFolders
+
+                Dim nameUpper As String = System.IO.Path.GetFileName(fInfo.FolderPath).Trim().ToUpperInvariant()
 
                 ' Figure out a suitable delete folder for this store:
                 Dim isDeleted As Boolean
@@ -2332,19 +2388,19 @@ EarlyExit:
 
         Dim defaultItemType As Microsoft.Office.Interop.Outlook.OlItemType
         Dim subFolders As Microsoft.Office.Interop.Outlook.Folders = Nothing
+        Dim count As Integer = 0
 
         Try
-
+            ' Batch COM property reads together to minimize marshaling overhead
             defaultItemType = StartFolder.DefaultItemType
+            subFolders = StartFolder.Folders
 
             If defaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
                 AddAnEntry(StartFolder)
             End If
 
-            subFolders = StartFolder.Folders
             If subFolders Is Nothing Then Exit Sub
 
-            Dim count As Integer = 0
             Try
                 count = subFolders.Count
             Catch ex As System.Runtime.InteropServices.COMException
@@ -2360,27 +2416,16 @@ EarlyExit:
                 Dim oFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = Nothing
 
                 Try
+                    oFolder = subFolders.Item(i)
 
-                    Try
-                        oFolder = subFolders.Item(i)
-                    Catch ex As System.Runtime.InteropServices.COMException
-                        Continue For
-                    Catch
-                        Continue For
-                    End Try
-
-                    If oFolder Is Nothing Then
-                        Continue For
+                    If oFolder IsNot Nothing Then
+                        AddFolder(oFolder)
                     End If
 
-                    Try
-                        AddFolder(oFolder)
-                    Catch ex As System.Runtime.InteropServices.COMException
-                        ' Skip any sub-folder that errors
-                    Catch
-                        ' Ignore and continue with remaining sub-folders
-                    End Try
-
+                Catch ex As System.Runtime.InteropServices.COMException
+                    ' Skip any sub-folder that errors
+                Catch
+                    ' Ignore and continue with remaining sub-folders
                 Finally
 
                     If oFolder IsNot Nothing Then
@@ -2428,12 +2473,23 @@ EarlyExit:
             ReDim Preserve gFolderTable(gFolderTableCurrentSize)
         End If
 
-        ' Store only folder identity data; do not keep COM objects across threads
+        ' Batch COM property reads to minimize marshaling overhead
         Dim info As FolderInfo
-        info.EntryID = Folder.EntryID
-        info.StoreID = Folder.StoreID
-        info.FolderPath = Folder.FolderPath
-        info.DefaultItemType = Folder.DefaultItemType
+        Dim folderItems As Microsoft.Office.Interop.Outlook.Items = Nothing
+        
+        Try
+            ' Read all required properties in a single batch to reduce COM calls
+            info.EntryID = Folder.EntryID
+            info.StoreID = Folder.StoreID
+            info.FolderPath = Folder.FolderPath
+            info.DefaultItemType = Folder.DefaultItemType
+            folderItems = Folder.Items
+        Catch ex As System.Runtime.InteropServices.COMException
+            ' If we can't read folder properties, skip this folder
+            Exit Sub
+        Catch
+            Exit Sub
+        End Try
 
         gFolderTable(gFolderTableIndex) = info
         gFolderTableIndex += 1
@@ -2441,10 +2497,9 @@ EarlyExit:
         Dim CurrentFolderPath As String = info.FolderPath
         Dim Include As Boolean
 
-        ' Determine if this folder is Inbox/Sent by its name
-        Dim folderName As String = System.IO.Path.GetFileName(CurrentFolderPath).Trim()
-        Dim isInboxFolder As Boolean = String.Equals(folderName, "Inbox", StringComparison.OrdinalIgnoreCase)
-        Dim isSentFolder As Boolean = String.Equals(folderName, "Sent", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(folderName, "Sent Items", StringComparison.OrdinalIgnoreCase) OrElse String.Equals(folderName, "Sent Mail", StringComparison.OrdinalIgnoreCase)
+        ' Use language-independent folder identification via EntryID
+        Dim isInboxFolder As Boolean = gDefaultInboxEntryIDs.Contains(info.EntryID)
+        Dim isSentFolder As Boolean = gDefaultSentEntryIDs.Contains(info.EntryID)
 
         If (gRefreshInbox AndAlso isInboxFolder) OrElse (gRefreshSent AndAlso isSentFolder) Then
             Include = True
@@ -2456,14 +2511,22 @@ EarlyExit:
 
         Dim folderItemCount As Integer = 0
 
-        If Include Then
+        If Include AndAlso folderItems IsNot Nothing Then
             Try
-                folderItemCount = Folder.Items.Count
+                folderItemCount = folderItems.Count
             Catch
                 folderItemCount = 0
             End Try
 
             lTotalEMailsToBeReviewed += folderItemCount
+        End If
+
+        If folderItems IsNot Nothing Then
+            Try
+                System.Runtime.InteropServices.Marshal.ReleaseComObject(folderItems)
+            Catch
+            End Try
+            folderItems = Nothing
         End If
 
         lTotalEMails += folderItemCount
