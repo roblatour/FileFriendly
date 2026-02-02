@@ -470,7 +470,7 @@ Module modSharedDataAndRoutines
 
             ' Get the latest stable release (first in the filtered list)
             Dim latestStable As GitHubRelease = stableReleases(0)
-            Dim latestStableTag As String = latestStable.tag_name.TrimStart("v"c)
+            Dim latestStableTag As String = latestStable.tag_name
 
             ' Parse the version from the tag
             Dim strMostCurrentVersionOnFile() As String = latestStableTag.Split(".")
