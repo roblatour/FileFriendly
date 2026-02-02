@@ -1,0 +1,2 @@
+As of version 2.4 the currentversion.txt file is no longer used; it has been replaced by quering the current release as stored on Github.
+Regardless the currentversion.txt file remains updated in this repository in support of legacy installations.
