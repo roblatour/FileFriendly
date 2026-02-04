@@ -1,4 +1,6 @@
-﻿Partial Public Class PickARefreshMode
+﻿' Copyright Rob Latour, 2026
+
+Partial Public Class PickARefreshMode
 
     Private Sub PickARefreshModeWindow_Loaded(ByVal sender As System.Object, ByVal e As System.Windows.RoutedEventArgs) Handles MyBase.Loaded
 
@@ -22,14 +24,14 @@
         If My.Settings.FirstRun Then
             If gRefreshOtherFolders Then
 
-                ShowMessageBox("FileFriendly", _
-                  CustomDialog.CustomDialogIcons.Warning, _
-                  "As this is the first time you are refreshing 'Other Folders' ...", _
-                  "You'll need confirm which ones. You will only be asked to do this once.  Please click [OK] to proceed.", _
-                   "You can always change your selection at any time by going to Actions - Options and clicking on the [Scan Folders ...] button.", _
-                  "", _
-                  CustomDialog.CustomDialogIcons.None, _
-                  CustomDialog.CustomDialogButtons.OK, _
+                ShowMessageBox("FileFriendly",
+                  CustomDialog.CustomDialogIcons.Warning,
+                  "As this is the first time you are refreshing 'Other Folders' ...",
+                  "You'll need confirm which ones. You will only be asked to do this once.  Please click [OK] to proceed.",
+                   "You can always change your selection at any time by going to Actions - Options and clicking on the [Scan Folders ...] button.",
+                  "",
+                  CustomDialog.CustomDialogIcons.None,
+                  CustomDialog.CustomDialogButtons.OK,
                   CustomDialog.CustomDialogResults.OK)
 
                 Me.Hide()

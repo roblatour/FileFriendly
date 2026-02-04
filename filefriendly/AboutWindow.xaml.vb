@@ -1,4 +1,5 @@
-﻿Partial Public Class LicenseWindow
+﻿' Copyright Rob Latour, 2026
+Partial Public Class LicenseWindow
 
     Private Sub LicenseWindow_Loaded(ByVal sender As Object, ByVal e As System.Windows.RoutedEventArgs) Handles Me.Loaded
 

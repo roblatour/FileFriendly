@@ -161,24 +161,25 @@ Namespace TreeViewWithCheckBoxes
                 WorkingTable(gFolderNamesTable.Length).FolderName = "*end*"
                 WorkingTable(gFolderNamesTable.Length).FullPathName = "*end*"
 
-
                 If gFolderReviewWindowContext = FolderReviewContext.ForScanning Then
+
                     If My.Settings.FirstRun Then
 
                         My.Settings.FirstRun = False
                         My.Settings.Save()
 
                         ' Make sure none of the excluded folders are checked on initial load
-                        Dim ExcludeFolders As String = "\\Outlook\Inbox \\Outlook\Outbox \\Outlook\Deleted Items \\Outlook\Drafts \\Outlook\Sent Items \\Outlook\Spam \\Outlook\Junk E-mail \\Outlook\RSS Feeds "
                         For z = 0 To WorkingTable.Length - 1
-                            If ExcludeFolders.Contains(WorkingTable(z).FullPathName) Then
+                            If IsDefaultFolderExcludedByEntryId(WorkingTable(z).FullPathName) Then
                                 WorkingTable(z).IsChecked = False
                             End If
                         Next
 
-                        'Exclude Archived Folders
+                        'Exclude Archived Folders (note this is language dependent,)
+                        ' the code below will work for English and French ("Archive") as well as German ("Archiv") 
+                        ' other languages may be added by updating the code below
                         For z = 0 To WorkingTable.Length - 1
-                            If WorkingTable(z).FullPathName.StartsWith("\\Archive") Then
+                            If WorkingTable(z).FullPathName.EndsWith("\Archive") OrElse WorkingTable(z).FullPathName.EndsWith("\Archiv") Then
                                 WorkingTable(z).IsChecked = False
                             End If
                         Next
@@ -308,13 +309,56 @@ Namespace TreeViewWithCheckBoxes
                 Return True
             End If
 
-            Dim idx As Integer = LookupFolderNamesTableIndex(fullPath)
-            If idx >= 0 Then
-                Dim ft As FolderTableType = gFolderTable(idx).FolderType
-                If (ft = FolderTableType.Inbox) OrElse (ft = FolderTableType.SentItems) Then
-                    Return True
+            If gFolderReviewWindowContext = FolderReviewContext.ForScanning Then
+                ' exclude Inbox, Sent and Outbox from Folders to Scan window
+                Dim idx As Integer = LookupFolderNamesTableIndex(fullPath)
+                If idx >= 0 Then
+                    Dim ft As FolderTableType = gFolderTable(idx).FolderType
+                    If (ft = FolderTableType.Inbox) OrElse (ft = FolderTableType.SentItems) OrElse MainWindow.gDefaultOutboxEntryIDs.Contains(gFolderTable(idx).EntryID) Then
+                        Return True
+                    End If
                 End If
+
+            Else
+
+                ' exclude Sent and Outbox from Folders to View window (this prevents someone from inadvertently moving an email into those folders)
+                Dim idx As Integer = LookupFolderNamesTableIndex(fullPath)
+                If idx >= 0 Then
+                    Dim ft As FolderTableType = gFolderTable(idx).FolderType
+                    If (ft = FolderTableType.SentItems) OrElse MainWindow.gDefaultOutboxEntryIDs.Contains(gFolderTable(idx).EntryID) Then
+                        Return True
+                    End If
+                End If
+
             End If
+
+
+            Return False
+        End Function
+
+        Private Shared Function IsDefaultFolderExcludedByEntryId(ByVal fullPathName As String) As Boolean
+            If String.IsNullOrEmpty(fullPathName) Then
+                Return False
+            End If
+
+            Dim idx As Integer = LookupFolderNamesTableIndex(fullPathName)
+            If idx < 0 OrElse idx >= gFolderTable.Length Then
+                Return False
+            End If
+
+            Dim entryId As String = gFolderTable(idx).EntryID
+            If String.IsNullOrEmpty(entryId) Then
+                Return False
+            End If
+
+            If MainWindow.gDefaultInboxEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultSentEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultDeletedEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultDraftsEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultJunkEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultOutboxEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultRssFeedsEntryIDs.Contains(entryId) Then Return True
+            If MainWindow.gDefaultSyncIssuesEntryIDs.Contains(entryId) Then Return True
 
             Return False
         End Function

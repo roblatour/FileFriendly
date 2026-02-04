@@ -1,23 +1,14 @@
-﻿Partial Public Class FolderReviewWindow
+﻿' Copyright Rob Latour, 2026
+Partial Public Class FolderReviewWindow
 
     ' Central, easily editable list of special folder names to exclude for "Recommended".
     ' Comparison is case-insensitive; values are matched against Branch.Name.
+    ' NOTE: Most default folders (Inbox, Sent, Deleted, Drafts, Junk, Outbox, RSS, Sync Issues)
+    ' are now detected via Outlook Interop and work across all language versions.
+    ' Only folders without OlDefaultFolders equivalents remain here.
     Private Shared ReadOnly RecommendedExcludedFolderNames As String() = {
         "All Folders",
-        "Deleted Items",
-        "Drafts",
-        "Inbox",
-        "Junk",
-        "Junk E-mail",
-        "Junk Email",
         "News Feed",
-        "Outbox",
-        "RSS Feeds",
-        "Sent Items",
-        "Sent Mail",
-        "Spam",
-        "Sync Issues",
-        "Trash",
         "Yammer Root"
     }
 
@@ -53,6 +44,35 @@
 
     End Sub
 
+    Private Shared Function IsFolderExcludedByDefault(ByVal fullPathName As String) As Boolean
+
+        If String.IsNullOrEmpty(fullPathName) Then
+            Return False
+        End If
+
+        Dim idx As Integer = LookupFolderNamesTableIndex(fullPathName)
+        If idx < 0 OrElse idx >= gFolderTable.Length Then
+            Return False
+        End If
+
+        Dim entryId As String = gFolderTable(idx).EntryID
+        If String.IsNullOrEmpty(entryId) Then
+            Return False
+        End If
+
+        If MainWindow.gDefaultInboxEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultSentEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultDeletedEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultDraftsEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultJunkEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultOutboxEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultRssFeedsEntryIDs.Contains(entryId) Then Return True
+        If MainWindow.gDefaultSyncIssuesEntryIDs.Contains(entryId) Then Return True
+
+        Return False
+
+    End Function
+
     Private Shared Sub ApplyRecommendedSelection(ByVal branch As TreeViewWithCheckBoxes.FooViewModel,
                                                  ByVal excluded As System.Collections.Generic.HashSet(Of String),
                                                  ByVal excludedSubtrees As System.Collections.Generic.HashSet(Of String),
@@ -81,11 +101,19 @@
 
         Else
 
-            If folderName IsNot Nothing AndAlso excluded.Contains(folderName) Then
-                branch.IsChecked = False
-            Else
-                branch.IsChecked = True
+            Dim isExcluded As Boolean = False
+
+            If IsFolderExcludedByDefault(branch.FullPathName) Then
+                isExcluded = True
+
+            ElseIf ((gFolderReviewWindowContext = FolderReviewContext.ForScanning) AndAlso (branch.FullPathName.EndsWith("\Archive") OrElse branch.FullPathName.EndsWith("\Archiv"))) Then
+                isExcluded = True
+
+            ElseIf folderName IsNot Nothing AndAlso excluded.Contains(folderName) Then
+                isExcluded = True
             End If
+
+            branch.IsChecked = Not isExcluded
 
         End If
 
@@ -174,15 +202,22 @@
                 Exit Sub
             End If
 
-            Dim excluded As New System.Collections.Generic.HashSet(Of String)(
+            ' When recommending for viewing recommend all folders be viewable
+            ' When recommending for scanning recommended specific folders be excluded (like inbox, sent, draft, etc.)
+
+            If gFolderReviewWindowContext = FolderReviewContext.ForScanning Then
+
+                Dim excluded As New System.Collections.Generic.HashSet(Of String)(
                 RecommendedExcludedFolderNames,
                 System.StringComparer.OrdinalIgnoreCase)
 
-            Dim excludedSubtrees As New System.Collections.Generic.HashSet(Of String)(
+                Dim excludedSubtrees As New System.Collections.Generic.HashSet(Of String)(
                 RecommendedExcludedFolderSubtrees,
                 System.StringComparer.OrdinalIgnoreCase)
 
-            ApplyRecommendedSelection(root, excluded, excludedSubtrees, False)
+                ApplyRecommendedSelection(root, excluded, excludedSubtrees, False)
+
+            End If
 
         Catch ex As Exception
             If My.Settings.SoundAlert Then Beep()

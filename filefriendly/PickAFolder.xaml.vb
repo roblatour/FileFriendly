@@ -1,4 +1,5 @@
-﻿Partial Public Class PickAFolder
+﻿' Copyright Rob Latour, 2026
+Partial Public Class PickAFolder
     Private Const ForwardSlashCharacter As Char = "\"c
     Private Const BackspaceTag As String = "*Backspace*"
     Private Const AbcTag As String = "*ABC*"

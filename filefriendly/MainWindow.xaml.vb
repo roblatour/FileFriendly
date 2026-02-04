@@ -1,4 +1,6 @@
-﻿Imports System.Linq
+﻿' Copyright Rob Latour, 2026
+
+Imports System.Linq
 Imports System.Text.RegularExpressions
 Imports System.Threading
 Imports System.Threading.Tasks
@@ -6,7 +8,6 @@ Imports System.Threading.Tasks
 Imports System.Windows.Threading
 Imports Microsoft.Office.Interop
 'Imports Microsoft.Office.Interop.Outlook
-
 Class MainWindow
     Inherits Window
 
@@ -115,10 +116,6 @@ Class MainWindow
     Private ReadOnly gListViewEntryIdsLock As New Object
     Private gListViewEntryIdsByFolder As New Dictionary(Of Integer, HashSet(Of String))(IntegerComparer.Instance)
 
-    ' Track Inbox/Sent folders across all mailboxes
-    'Private gInboxFolderIndices As New List(Of Integer)
-    'Private gSentFolderIndices As New List(Of Integer)
-
     ' Per‑store delete target (Deleted Items or Trash) for each Outlook store
     Private Structure StoreDeleteFolderInfo
         Friend StoreId As String
@@ -128,8 +125,14 @@ Class MainWindow
     Private gStoreDeleteFolders As New Dictionary(Of String, StoreDeleteFolderInfo)(StringComparer.OrdinalIgnoreCase)
 
     ' Store default folder EntryIDs for language-independent folder identification
-    Private gDefaultInboxEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
-    Private gDefaultSentEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultInboxEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultSentEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultDeletedEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultDraftsEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultJunkEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultOutboxEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultRssFeedsEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultSyncIssuesEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
 
     ' Number of distinct Outlook mailboxes (stores) detected
     Private Shared _TotalMailBoxes As Integer = 0 ' number of mailboxes in Outlook PostOffice
@@ -2124,6 +2127,12 @@ CleanExit:
 
         gDefaultInboxEntryIDs.Clear()
         gDefaultSentEntryIDs.Clear()
+        gDefaultDeletedEntryIDs.Clear()
+        gDefaultDraftsEntryIDs.Clear()
+        gDefaultJunkEntryIDs.Clear()
+        gDefaultOutboxEntryIDs.Clear()
+        gDefaultRssFeedsEntryIDs.Clear()
+        gDefaultSyncIssuesEntryIDs.Clear()
 
         If oNS Is Nothing Then Return
 
@@ -2154,6 +2163,68 @@ CleanExit:
                         End If
                     Catch
                     End Try
+
+                    Try
+                        Dim deletedFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderDeletedItems)
+                        If deletedFolder IsNot Nothing Then
+                            gDefaultDeletedEntryIDs.Add(deletedFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(deletedFolder)
+                        End If
+                    Catch
+                    End Try
+
+                    Try
+                        Dim draftsFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderDrafts)
+                        If draftsFolder IsNot Nothing Then
+                            gDefaultDraftsEntryIDs.Add(draftsFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(draftsFolder)
+                        End If
+                    Catch
+                    End Try
+
+                    Try
+                        Dim junkFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderJunk)
+                        If junkFolder IsNot Nothing Then
+                            gDefaultJunkEntryIDs.Add(junkFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(junkFolder)
+                        End If
+                    Catch
+                    End Try
+
+                    Try
+                        Dim outboxFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderOutbox)
+                        If outboxFolder IsNot Nothing Then
+                            gDefaultOutboxEntryIDs.Add(outboxFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(outboxFolder)
+                        End If
+                    Catch
+                    End Try
+
+                    Try
+                        Dim rssFeedsFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderRssFeeds)
+                        If rssFeedsFolder IsNot Nothing Then
+                            gDefaultRssFeedsEntryIDs.Add(rssFeedsFolder.EntryID)
+                            System.Runtime.InteropServices.Marshal.ReleaseComObject(rssFeedsFolder)
+                        End If
+                    Catch
+                    End Try
+
+                    Dim isExchangeStore As Boolean = store.ExchangeStoreType <> Microsoft.Office.Interop.Outlook.OlExchangeStoreType.olNotExchange
+                    Dim isImapStore As Boolean = False
+                    If store.FilePath IsNot Nothing Then
+                        isImapStore = store.FilePath.EndsWith(".ost", StringComparison.OrdinalIgnoreCase)
+                    End If
+
+                    If isExchangeStore OrElse isImapStore Then
+                        Try
+                            Dim syncIssuesFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderSyncIssues)
+                            If syncIssuesFolder IsNot Nothing Then
+                                gDefaultSyncIssuesEntryIDs.Add(syncIssuesFolder.EntryID)
+                                System.Runtime.InteropServices.Marshal.ReleaseComObject(syncIssuesFolder)
+                            End If
+                        Catch
+                        End Try
+                    End If
 
                 Finally
                     If store IsNot Nothing Then
@@ -2220,7 +2291,13 @@ CleanExit:
             ' Detect special folders across all mailboxes
             gDeletedFolderIndex = -1
 
-            ' First xStep: locate Inbox/Sent and best delete folder (Deleted Items / Deleted / Trash) per store
+#If DEBUG Then
+            Dim inboxFoldersFound As Integer = 0
+            Dim sentFoldersFound As Integer = 0
+            Dim deletedFoldersFound As Integer = 0
+#End If
+
+            ' First Step: locate Inbox/Sent and best delete folder (Deleted Items / Deleted / Trash) per store
             For x As Integer = 0 To gFolderTable.Length - 1
 
                 gFolderTable(x).FolderType = FolderTableType.OtherFolders
@@ -2231,71 +2308,50 @@ CleanExit:
                 End If
 
                 ' Use language-independent folder identification via EntryID
+                ' to find the inbox, sent items and deleted folders
+
                 If gDefaultInboxEntryIDs.Contains(fInfo.EntryID) Then
                     gFolderTable(x).FolderType = FolderTableType.Inbox
+#If DEBUG Then
+                    inboxFoldersFound += 1
+#End If
                     Continue For
                 End If
 
                 If gDefaultSentEntryIDs.Contains(fInfo.EntryID) Then
                     gFolderTable(x).FolderType = FolderTableType.SentItems
+#If DEBUG Then
+                    sentFoldersFound += 1
+#End If
+                    Continue For
+                End If
+
+                If gDefaultDeletedEntryIDs.Contains(fInfo.EntryID) Then
+                    Dim storeId As String = fInfo.StoreID
+                    If Not String.IsNullOrEmpty(storeId) Then
+                        gStoreDeleteFolders(storeId) = New StoreDeleteFolderInfo With {
+                            .StoreId = storeId,
+                            .FolderIndex = x
+                        }
+
+                        ' Maintain backwards‑compatible global deleted index for legacy callers
+                        If gDeletedFolderIndex = -1 Then
+                            gDeletedFolderIndex = x
+                        End If
+#If DEBUG Then
+                        deletedFoldersFound += 1
+#End If
+                    End If
                     Continue For
                 End If
 
                 gFolderTable(x).FolderType = FolderTableType.OtherFolders
 
-                Dim nameUpper As String = System.IO.Path.GetFileName(fInfo.FolderPath).Trim().ToUpperInvariant()
-
-                ' Figure out a suitable delete folder for this store:
-                Dim isDeleted As Boolean
-                Select Case nameUpper
-                    Case "DELETED ITEMS", "DELETED", "TRASH"
-                        isDeleted = True
-                    Case Else
-                        isDeleted = False
-                End Select
-
-                If Not isDeleted Then
-                    Continue For
-                End If
-
-                Dim storeId As String = fInfo.StoreID
-                If String.IsNullOrEmpty(storeId) Then
-                    Continue For
-                End If
-
-                Dim existing As StoreDeleteFolderInfo = Nothing
-                Dim hasExisting As Boolean = gStoreDeleteFolders.TryGetValue(storeId, existing)
-
-                If Not hasExisting Then
-                    ' First candidate for this store
-                    gStoreDeleteFolders(storeId) = New StoreDeleteFolderInfo With {
-                        .StoreId = storeId,
-                        .FolderIndex = x
-                    }
-                Else
-                    ' We may have a weaker candidate already; prefer Deleted Items > Deleted > Trash
-                    Dim currentNameUpper As String = System.IO.Path.GetFileName(gFolderTable(existing.FolderIndex).FolderPath).Trim().ToUpperInvariant()
-
-                    Dim currentScore As Integer = GetDeleteFolderPreferenceScore(currentNameUpper)
-                    Dim newScore As Integer = GetDeleteFolderPreferenceScore(nameUpper)
-
-                    If newScore > currentScore Then
-                        existing.FolderIndex = x
-                        gStoreDeleteFolders(storeId) = existing
-                    End If
-                End If
-
-                ' Maintain backwards‑compatible global deleted index for legacy callers:
-                ' pick the first 'Deleted Items' we see, then fall back to any previous.
-                If (gDeletedFolderIndex = -1) AndAlso isDeleted Then
-                    gDeletedFolderIndex = x
-                End If
-
             Next
 
 #If DEBUG Then
-            ' Debug: ensure we found at least some inbox/sent folders
-            ' Console.WriteLine("Inboxes: " & gInboxFolderIndices.NumberOfSelectedItems & " Sent: " & gSentFolderIndices.NumberOfSelectedItems)
+            'Debug: ensure we found at least some inbox/sent/deleted folders
+            Console.WriteLine("Inbox folders found: " & inboxFoldersFound & "; Sent folders found: " & sentFoldersFound & "; Deleted folders found: " & deletedFoldersFound)
 #End If
 
             gFolderButtonsOnOptionsWindowEnabled = True
@@ -2310,11 +2366,6 @@ CleanExit:
 
                     ToolTipMessage = "E-mails _from all included folders are being reviewed"
 
-                    'ProcessBarMaxValue = 
-                    ' 10 times the TotalEMails To Be Reviewed for processing all info but the workingBody +
-                    ' 1 times the TotalEMails To Be Reviewed for processing the workingBody + 
-                    ' a time factor doing the recommendations
-                    'ProgressBarMaxValue = (3 * lTotalEMailsToBeReviewed) + Int(lTotalEMailsToBeReviewed * (1 + My.Settings.RatioOfRecommendationToProcessingTime + 0.01))
                     ProgressBarMaxValue = lTotalEMailsToBeReviewed
 
                 Else
@@ -2364,23 +2415,6 @@ EarlyExit:
         gScanningFolders = False
 
     End Sub
-
-    Private Function GetDeleteFolderPreferenceScore(ByVal nameUpper As String) As Integer
-
-        ' Highest score wins
-        If nameUpper = "DELETED ITEMS" Then
-            Return 3
-        End If
-        If nameUpper = "DELETED" Then
-            Return 2
-        End If
-        If nameUpper = "TRASH" Then
-            Return 1
-        End If
-
-        Return 0
-
-    End Function
 
     Private Sub AddFolder(ByRef StartFolder As Microsoft.Office.Interop.Outlook.MAPIFolder)
 
@@ -2476,7 +2510,7 @@ EarlyExit:
         ' Batch COM property reads to minimize marshaling overhead
         Dim info As FolderInfo
         Dim folderItems As Microsoft.Office.Interop.Outlook.Items = Nothing
-        
+
         Try
             ' Read all required properties in a single batch to reduce COM calls
             info.EntryID = Folder.EntryID

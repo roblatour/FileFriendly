@@ -1,4 +1,6 @@
-﻿Partial Public Class OptionsWindow
+﻿' Copyright Rob Latour, 2026
+
+Partial Public Class OptionsWindow
 
     Private InitializationComplete As Boolean = False
 
