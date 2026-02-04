@@ -211,6 +211,9 @@ Class MainWindow
     Private gCurrentSortDirection As ListSortDirection = ListSortDirection.Ascending
     Private gOutlookEventHandler As OutlookEventHandler
     Private ReadOnly gEventHandlerLock As New Object()
+    Private gOutlookMonitoringRetryTimer As DispatcherTimer
+    Private gOutlookMonitoringRetryCount As Integer = 0
+    Private Const gOutlookMonitoringRetryMax As Integer = 20
     Private gRefreshGridScheduled As Boolean = False
     Private ReadOnly gRefreshGridLock As New Object()
     Private EnsureUninteruptedProcessingOfOnEmailAddedFromEvent As New Object
@@ -399,15 +402,22 @@ Class MainWindow
         Try
 
             If gFolderTable Is Nothing OrElse gFolderTable.Length = 0 Then
+                ScheduleOutlookMonitoringRetry()
                 Exit Sub
             End If
 
             If oNS Is Nothing Then
                 If Not EnsureOutlookIsRunning() Then Exit Sub
-                If oNS Is Nothing Then Exit Sub
+                If oNS Is Nothing Then
+                    ScheduleOutlookMonitoringRetry()
+                    Exit Sub
+                End If
             End If
 
-            If GetCurrentOutlookProcessId() <= 0 Then Exit Sub
+            If GetCurrentOutlookProcessId() <= 0 Then
+                ScheduleOutlookMonitoringRetry()
+                Exit Sub
+            End If
 
             Dim monitoringThread As New Thread(Sub()
                                                    Try
@@ -418,6 +428,7 @@ Class MainWindow
                                                            ClearMonitoringOfOutlookEvents()
                                                            If ns Is Nothing Then Return
                                                            gOutlookEventHandler = New OutlookEventHandler(Me, ns)
+                                                           Me.Dispatcher.BeginInvoke(New Action(AddressOf StopOutlookMonitoringRetry))
                                                        End SyncLock
                                                    Catch ex As Exception
                                                    End Try
@@ -448,6 +459,43 @@ Class MainWindow
         Catch ex As Exception
         End Try
 
+    End Sub
+
+    Private Sub ScheduleOutlookMonitoringRetry()
+        Try
+            If gOutlookMonitoringRetryTimer Is Nothing Then
+                gOutlookMonitoringRetryTimer = New DispatcherTimer() With {
+                    .Interval = TimeSpan.FromMilliseconds(500)
+                }
+
+                AddHandler gOutlookMonitoringRetryTimer.Tick, Sub()
+                                                                  gOutlookMonitoringRetryCount += 1
+                                                                  If gOutlookMonitoringRetryCount > gOutlookMonitoringRetryMax Then
+                                                                      gOutlookMonitoringRetryTimer.Stop()
+                                                                      gOutlookMonitoringRetryTimer = Nothing
+                                                                      Return
+                                                                  End If
+
+                                                                  InitializeMonitoringOfOutlookEvents()
+                                                              End Sub
+
+                gOutlookMonitoringRetryTimer.Start()
+            ElseIf Not gOutlookMonitoringRetryTimer.IsEnabled Then
+                gOutlookMonitoringRetryTimer.Start()
+            End If
+        Catch
+        End Try
+    End Sub
+
+    Private Sub StopOutlookMonitoringRetry()
+        Try
+            If gOutlookMonitoringRetryTimer IsNot Nothing Then
+                gOutlookMonitoringRetryTimer.Stop()
+                gOutlookMonitoringRetryTimer = Nothing
+            End If
+            gOutlookMonitoringRetryCount = 0
+        Catch
+        End Try
     End Sub
 
     Friend Sub OnEmailAddedFromEvent(ByVal folderIndex As Integer, ByVal entryId As String, ByVal subject As String, ByVal toAddr As String, ByVal fromAddr As String, ByVal receivedTime As Date, ByVal isUnread As Boolean, ByVal body As String)

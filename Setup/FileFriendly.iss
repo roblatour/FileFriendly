@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "FileFriendly"
-#define MyAppVersion "2.6"
+#define MyAppVersion "2.6.1"
 #define MyAppPublisher "Rob Latour"
 #define MyAppURL "https://github.com/roblatour/FileFriendly"
 #define MyAppExeName "filefriendly.exe"
@@ -24,8 +24,6 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-; "ArchitecturesAllowed=x64compatible" specifies that Setup cannot run
-; on anything but x64 and Windows 11 on Arm.
 ArchitecturesAllowed=x64compatible
 ; "ArchitecturesInstallIn64BitMode=x64compatible" requests that the
 ; install be done in "64-bit mode" on x64 or Windows 11 on Arm,
@@ -34,6 +32,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
+UsePreviousTasks=no
 LicenseFile=..\filefriendly\License.rtf
 ; Uncomment the following line to run in non administrative install mode (install for current user only).
 ;PrivilegesRequired=lowest
@@ -48,7 +47,7 @@ SetupIconFile=..\filefriendly\fflogo.ico
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
 Source: "..\filefriendly\bin\x64\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -62,6 +61,7 @@ Root: HKA; Subkey: "Software\Classes\{#MyAppAssocKey}\shell\open\command"; Value
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
