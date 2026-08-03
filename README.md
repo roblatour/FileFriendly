@@ -1,6 +1,6 @@
 # Overview - FileFriendly v2.7 (2026-08-03)
 
-File Friendly works with Microsoft Outlook® to quickly and easily file
+File Friendly works with Microsoft Outlook® (Classic) to quickly and easily file
 your e-mails exactly where you need them to be.
 
 The program scans, organizes, and presents your Outlook e-mails for
