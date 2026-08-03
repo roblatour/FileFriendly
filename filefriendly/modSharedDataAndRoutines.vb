@@ -460,9 +460,9 @@ Module modSharedDataAndRoutines
 
             ' Filter stable releases (not prerelease)
             Dim stableReleases As New List(Of GitHubRelease)
-            For Each release In releases
-                If Not release.prerelease AndAlso Not String.IsNullOrEmpty(release.tag_name) Then
-                    stableReleases.Add(release)
+            For Each ghrelease In releases
+                If Not ghrelease.prerelease AndAlso Not String.IsNullOrEmpty(ghrelease.tag_name) Then
+                    stableReleases.Add(ghrelease)
                 End If
             Next
 

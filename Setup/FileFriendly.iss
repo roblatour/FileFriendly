@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "FileFriendly"
-#define MyAppVersion "2.6.1"
+#define MyAppVersion "2.7"
 #define MyAppPublisher "Rob Latour"
 #define MyAppURL "https://github.com/roblatour/FileFriendly"
 #define MyAppExeName "filefriendly.exe"
@@ -22,14 +22,9 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-DefaultDirName={autopf}\{#MyAppName}
+DefaultDirName={code:GetDefaultDirName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
-ArchitecturesAllowed=x64compatible
-; "ArchitecturesInstallIn64BitMode=x64compatible" requests that the
-; install be done in "64-bit mode" on x64 or Windows 11 on Arm,
-; meaning it should use the native 64-bit Program Files directory and
-; the 64-bit view of the registry.
-ArchitecturesInstallIn64BitMode=x64compatible
+
 ChangesAssociations=yes
 DisableProgramGroupPage=yes
 UsePreviousTasks=no
@@ -50,7 +45,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
 [Files]
-Source: "..\filefriendly\bin\x64\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\filefriendly\bin\x86\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: not Install64BitBuild
+Source: "..\filefriendly\bin\x64\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Check: Install64BitBuild
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Registry]
@@ -65,4 +61,123 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+var
+  OutlookBitnessKnown: Boolean;
+  OutlookIs64Bit: Boolean;
+  ArchitecturePage: TInputOptionWizardPage;
+
+function TryGetOutlookPlatform(const RootKey: Integer; var Is64Bit: Boolean): Boolean;
+var
+  Platform: String;
+begin
+  Result := False;
+  if not RegQueryStringValue(RootKey, 'SOFTWARE\Microsoft\Office\ClickToRun\Configuration', 'Platform', Platform) then
+    Exit;
+
+  if CompareText(Platform, 'x64') = 0 then begin
+    Is64Bit := True;
+    Result := True;
+  end else if CompareText(Platform, 'x86') = 0 then begin
+    Is64Bit := False;
+    Result := True;
+  end;
+end;
+
+function TryGetOutlookAppPathBitness(var Is64Bit: Boolean): Boolean;
+var
+  OutlookPath: String;
+begin
+  Result := False;
+
+  if IsWin64 then begin
+    if RegQueryStringValue(HKLM64, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE', '', OutlookPath) then begin
+      Is64Bit := True;
+      Result := True;
+      Exit;
+    end;
+
+    if RegQueryStringValue(HKLM32, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE', '', OutlookPath) then begin
+      Is64Bit := False;
+      Result := True;
+      Exit;
+    end;
+  end else if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\OUTLOOK.EXE', '', OutlookPath) then begin
+    Is64Bit := False;
+    Result := True;
+  end;
+end;
+
+function DetectOutlookBitness(var Is64Bit: Boolean): Boolean;
+begin
+  Result := False;
+
+  if IsWin64 then begin
+    if TryGetOutlookPlatform(HKLM64, Is64Bit) then begin
+      Result := True;
+      Exit;
+    end;
+
+    if TryGetOutlookPlatform(HKLM32, Is64Bit) then begin
+      Result := True;
+      Exit;
+    end;
+  end else if TryGetOutlookPlatform(HKLM, Is64Bit) then begin
+    Result := True;
+    Exit;
+  end;
+
+  Result := TryGetOutlookAppPathBitness(Is64Bit);
+end;
+
+function GetInstallDirectory(Is64Bit: Boolean): String;
+begin
+  if Is64Bit and IsWin64 then
+    Result := AddBackslash(ExpandConstant('{pf64}')) + '{#MyAppName}'
+  else
+    Result := AddBackslash(ExpandConstant('{autopf}')) + '{#MyAppName}';
+end;
+
+function GetDefaultDirName(Param: String): String;
+var
+  Is64Bit: Boolean;
+begin
+  if DetectOutlookBitness(Is64Bit) then
+    Result := GetInstallDirectory(Is64Bit)
+  else
+    Result := GetInstallDirectory(False);
+end;
+
+procedure InitializeWizard;
+begin
+  OutlookBitnessKnown := DetectOutlookBitness(OutlookIs64Bit);
+
+  if not OutlookBitnessKnown then begin
+    ArchitecturePage := CreateInputOptionPage(wpWelcome,
+      'Select FileFriendly architecture',
+      'Outlook Classic architecture could not be determined',
+      'FileFriendly must match the bitness of the installed Outlook Classic application. Select the architecture that matches Outlook Classic.',
+      True, True);
+    ArchitecturePage.Add('32-bit FileFriendly for 32-bit Outlook Classic');
+    ArchitecturePage.Add('64-bit FileFriendly for 64-bit Outlook Classic');
+    ArchitecturePage.SelectedValueIndex := 0;
+  end;
+end;
+
+function Install64BitBuild: Boolean;
+begin
+  if OutlookBitnessKnown then
+    Result := OutlookIs64Bit
+  else
+    Result := ArchitecturePage.SelectedValueIndex = 1;
+end;
+
+function NextButtonClick(CurPageID: Integer): Boolean;
+begin
+  Result := True;
+
+  if (ArchitecturePage <> nil) and (CurPageID = ArchitecturePage.ID) then
+    WizardForm.DirEdit.Text := GetInstallDirectory(Install64BitBuild);
+end;
 

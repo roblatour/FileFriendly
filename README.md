@@ -1,4 +1,4 @@
-# Overview - FileFriendly v2.6.1 (2026-02-04)
+# Overview - FileFriendly v2.7 (2026-08-03)
 
 File Friendly works with Microsoft Outlook® to quickly and easily file
 your e-mails exactly where you need them to be.
@@ -37,7 +37,8 @@ the time you are used to.
 
 # Getting Started
 
-1.  Download and install File Friendly from setup zip file found [here](https://github.com/roblatour/FileFriendly/releases/tag/2.4.0.0).
+1.  Download and install File Friendly from setup zip file found [here](https://github.com/roblatour/FileFriendly/releases/tag/2.7.0.0) 
+    (Note: the setup file is not digitally signed)
 
 
 2.  Launch the program and your Outlook folders and emails will be

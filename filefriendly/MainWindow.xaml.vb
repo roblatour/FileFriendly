@@ -1,6 +1,7 @@
 ﻿' Copyright Rob Latour, 2026
 
 Imports System.Linq
+Imports System.Runtime.InteropServices
 Imports System.Text.RegularExpressions
 Imports System.Threading
 Imports System.Threading.Tasks
@@ -123,11 +124,15 @@ Class MainWindow
     End Structure
 
     Private gStoreDeleteFolders As New Dictionary(Of String, StoreDeleteFolderInfo)(StringComparer.OrdinalIgnoreCase)
+    Private gStoreIdsByDisplayName As New Dictionary(Of String, String)(StringComparer.OrdinalIgnoreCase)
 
     ' Store default folder EntryIDs for language-independent folder identification
     Friend Shared gDefaultInboxEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Friend Shared gDefaultSentEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Friend Shared gDefaultDeletedEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultInboxFolderPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultSentFolderPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
+    Friend Shared gDefaultDeletedFolderPaths As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Friend Shared gDefaultDraftsEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Friend Shared gDefaultJunkEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
     Friend Shared gDefaultOutboxEntryIDs As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase)
@@ -2176,11 +2181,15 @@ CleanExit:
         gDefaultInboxEntryIDs.Clear()
         gDefaultSentEntryIDs.Clear()
         gDefaultDeletedEntryIDs.Clear()
+        gDefaultInboxFolderPaths.Clear()
+        gDefaultSentFolderPaths.Clear()
+        gDefaultDeletedFolderPaths.Clear()
         gDefaultDraftsEntryIDs.Clear()
         gDefaultJunkEntryIDs.Clear()
         gDefaultOutboxEntryIDs.Clear()
         gDefaultRssFeedsEntryIDs.Clear()
         gDefaultSyncIssuesEntryIDs.Clear()
+        gStoreIdsByDisplayName.Clear()
 
         If oNS Is Nothing Then Return
 
@@ -2188,16 +2197,24 @@ CleanExit:
             Dim stores As Microsoft.Office.Interop.Outlook.Stores = oNS.Stores
             If stores Is Nothing Then Return
 
+            _TotalMailBoxes = stores.Count
+
             For i As Integer = 1 To stores.Count
                 Dim store As Microsoft.Office.Interop.Outlook.Store = Nothing
                 Try
                     store = stores.Item(i)
                     If store Is Nothing Then Continue For
 
+                    If Not String.IsNullOrEmpty(store.DisplayName) AndAlso Not String.IsNullOrEmpty(store.StoreID) Then
+                        gStoreIdsByDisplayName(store.DisplayName) = store.StoreID
+                        'Console.WriteLine(">>>>>>>>>>>>>>>>>>>>>>>>> mailbox found >>>> " & store.DisplayName)
+                    End If
+
                     Try
                         Dim inboxFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderInbox)
                         If inboxFolder IsNot Nothing Then
                             gDefaultInboxEntryIDs.Add(inboxFolder.EntryID)
+                            gDefaultInboxFolderPaths.Add(inboxFolder.FolderPath)
                             System.Runtime.InteropServices.Marshal.ReleaseComObject(inboxFolder)
                         End If
                     Catch
@@ -2207,6 +2224,7 @@ CleanExit:
                         Dim sentFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderSentMail)
                         If sentFolder IsNot Nothing Then
                             gDefaultSentEntryIDs.Add(sentFolder.EntryID)
+                            gDefaultSentFolderPaths.Add(sentFolder.FolderPath)
                             System.Runtime.InteropServices.Marshal.ReleaseComObject(sentFolder)
                         End If
                     Catch
@@ -2216,6 +2234,7 @@ CleanExit:
                         Dim deletedFolder As Microsoft.Office.Interop.Outlook.MAPIFolder = store.GetDefaultFolder(Microsoft.Office.Interop.Outlook.OlDefaultFolders.olFolderDeletedItems)
                         If deletedFolder IsNot Nothing Then
                             gDefaultDeletedEntryIDs.Add(deletedFolder.EntryID)
+                            gDefaultDeletedFolderPaths.Add(deletedFolder.FolderPath)
                             System.Runtime.InteropServices.Marshal.ReleaseComObject(deletedFolder)
                         End If
                     Catch
@@ -2312,11 +2331,39 @@ CleanExit:
             lTotalEMails = 0
             lTotalEMailsToBeReviewed = 0
 
-            If oNS.Folders IsNot Nothing Then
-                For x As Integer = 1 To oNS.Folders.Count
-                    If gCancelRefresh Then Exit For
-                    AddFolder(oNS.Folders.Item(x))
-                Next
+            ' Run the MAPI hierarchy-table walk on the UI (STA) thread.
+            ' MAPI interfaces obtained from oNS.MAPIOBJECT are apartment-bound
+            ' to the STA thread where the Outlook session was created, so they
+            ' cannot be called from the Task.Run (MTA) background thread.
+#If OUTLOOK_X86 Or OUTLOOK_X64 Then
+#If DEBUG Then
+            Dim mapiSw As New Diagnostics.Stopwatch
+            mapiSw.Start()
+#End If
+            Me.Dispatcher.Invoke(New Action(AddressOf MapiWalkAllStores))
+#If DEBUG Then
+            mapiSw.Stop()
+            Debug.WriteLine($"[FileFriendly] MAPI walk took {mapiSw.ElapsedMilliseconds} ms, found {gFolderTableIndex} folders")
+#End If
+#End If
+
+            ' If the MAPI hierarchy-table walk found no folders, fall back to the OOM walk
+            If gFolderTableIndex = 0 AndAlso Not gCancelRefresh Then
+#If DEBUG Then
+                Debug.WriteLine("[FileFriendly] MAPI walk produced 0 folders — falling back to OOM walk")
+                Dim oomSw As New Diagnostics.Stopwatch
+                oomSw.Start()
+#End If
+                If oNS.Folders IsNot Nothing Then
+                    For x As Integer = 1 To oNS.Folders.Count
+                        If gCancelRefresh Then Exit For
+                        AddFolderOOM(oNS.Folders.Item(x))
+                    Next
+                End If
+#If DEBUG Then
+                oomSw.Stop()
+                Debug.WriteLine($"[FileFriendly] OOM fallback walk took {oomSw.ElapsedMilliseconds} ms, found {gFolderTableIndex} folders")
+#End If
             End If
 
             If gCancelRefresh Then GoTo EarlyExit
@@ -2355,10 +2402,12 @@ CleanExit:
                     Continue For
                 End If
 
+
+                ' Console.WriteLine(gFolderTable(x).FolderPath)
                 ' Use language-independent folder identification via EntryID
                 ' to find the inbox, sent items and deleted folders
 
-                If gDefaultInboxEntryIDs.Contains(fInfo.EntryID) Then
+                If gDefaultInboxEntryIDs.Contains(fInfo.EntryID) OrElse gDefaultInboxFolderPaths.Contains(fInfo.FolderPath) Then
                     gFolderTable(x).FolderType = FolderTableType.Inbox
 #If DEBUG Then
                     inboxFoldersFound += 1
@@ -2366,7 +2415,7 @@ CleanExit:
                     Continue For
                 End If
 
-                If gDefaultSentEntryIDs.Contains(fInfo.EntryID) Then
+                If gDefaultSentEntryIDs.Contains(fInfo.EntryID) OrElse gDefaultSentFolderPaths.Contains(fInfo.FolderPath) Then
                     gFolderTable(x).FolderType = FolderTableType.SentItems
 #If DEBUG Then
                     sentFoldersFound += 1
@@ -2374,7 +2423,7 @@ CleanExit:
                     Continue For
                 End If
 
-                If gDefaultDeletedEntryIDs.Contains(fInfo.EntryID) Then
+                If gDefaultDeletedEntryIDs.Contains(fInfo.EntryID) OrElse gDefaultDeletedFolderPaths.Contains(fInfo.FolderPath) Then
                     Dim storeId As String = fInfo.StoreID
                     If Not String.IsNullOrEmpty(storeId) Then
                         gStoreDeleteFolders(storeId) = New StoreDeleteFolderInfo With {
@@ -2464,7 +2513,398 @@ EarlyExit:
 
     End Sub
 
-    Private Sub AddFolder(ByRef StartFolder As Microsoft.Office.Interop.Outlook.MAPIFolder)
+    ' ------- Extended MAPI hierarchy-table walk (replaces AddFolder / AddAnEntry) -------
+
+    Private Sub MapiWalkAllStores()
+
+        If oNS Is Nothing Then Return
+
+        Dim pSession As IntPtr = IntPtr.Zero
+        Dim pStoresTable As IntPtr = IntPtr.Zero
+        Dim pStoreTags As IntPtr = IntPtr.Zero
+        Dim pRowSet As IntPtr = IntPtr.Zero
+        Dim mapiInitialized As Boolean = False
+
+        Try
+            Dim hr As Integer = MapiNative.MAPIInitialize(IntPtr.Zero)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: MAPIInitialize hr=0x{hr:X8}")
+#End If
+            If hr <> 0 Then Return
+            mapiInitialized = True
+
+            hr = MapiNative.MAPILogonEx(IntPtr.Zero, Nothing, Nothing,
+                                        MapiFlags.MAPI_EXTENDED Or MapiFlags.MAPI_USE_DEFAULT,
+                                        pSession)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: MAPILogonEx hr=0x{hr:X8}")
+#End If
+            If hr <> 0 OrElse pSession = IntPtr.Zero Then Return
+
+            Dim pTable As IntPtr = IntPtr.Zero
+            hr = MapiVtable.GetMsgStoresTable(pSession, 0, pTable)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: GetMsgStoresTable hr=0x{hr:X8}, table={(If(pTable <> IntPtr.Zero, "ok", "null"))}")
+#End If
+            If hr <> 0 OrElse pTable = IntPtr.Zero Then Return
+            pStoresTable = pTable
+
+            Dim storeTagArray() As UInteger = {
+                MapiPropTags.PR_ENTRYID,
+                MapiPropTags.PR_DISPLAY_NAME_W,
+                MapiPropTags.PR_STORE_ENTRYID
+            }
+            pStoreTags = MapiHelpers.AllocPropTagArray(storeTagArray)
+            hr = MapiVtable.SetColumns(pStoresTable, pStoreTags, 0)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: StoresTable SetColumns hr=0x{hr:X8}")
+#End If
+
+            hr = MapiVtable.QueryRows(pStoresTable, 999, 0, pRowSet)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: StoresTable QueryRows hr=0x{hr:X8}, pRowSet={(If(pRowSet <> IntPtr.Zero, "ok", "null"))}")
+#End If
+            If pRowSet = IntPtr.Zero Then Return
+
+            Dim cStores As Integer = Marshal.ReadInt32(pRowSet, 0)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: Found {cStores} stores")
+#End If
+
+            For s As Integer = 0 To cStores - 1
+                If gCancelRefresh Then Exit For
+
+                Dim rowOffset As Integer = MapiHelpers.SRowSetFirstRowOffset + s * MapiHelpers.SRowSize
+                Dim cValues As UInteger = CUInt(Marshal.ReadInt32(pRowSet, rowOffset + 4))
+                Dim lpProps As IntPtr = Marshal.ReadIntPtr(pRowSet, rowOffset + 8)
+
+                Dim storeEntryIdCb As Integer
+                Dim storeEntryIdPtr As IntPtr = MapiHelpers.GetBinaryProperty(
+                    lpProps, cValues, MapiPropTags.PR_ENTRYID, storeEntryIdCb)
+
+                Dim storeDisplayName As String = MapiHelpers.GetStringProperty(
+                    lpProps, cValues, MapiPropTags.PR_DISPLAY_NAME_W)
+                If String.IsNullOrEmpty(storeDisplayName) Then storeDisplayName = "Unknown"
+
+                Dim storeIdHex As String = Nothing
+                If Not gStoreIdsByDisplayName.TryGetValue(storeDisplayName, storeIdHex) Then
+                    storeIdHex = MapiHelpers.GetBinaryPropertyAsHex(
+                        lpProps, cValues, MapiPropTags.PR_STORE_ENTRYID)
+                    If String.IsNullOrEmpty(storeIdHex) Then
+                        storeIdHex = MapiHelpers.GetBinaryPropertyAsHex(
+                            lpProps, cValues, MapiPropTags.PR_ENTRYID)
+                    End If
+                End If
+
+                If storeEntryIdPtr = IntPtr.Zero OrElse storeEntryIdCb <= 0 Then Continue For
+
+                Dim pStore As IntPtr = IntPtr.Zero
+                hr = MapiVtable.OpenMsgStore(pSession, IntPtr.Zero, CUInt(storeEntryIdCb), storeEntryIdPtr,
+                                              IntPtr.Zero, MapiFlags.MAPI_BEST_ACCESS, pStore)
+#If DEBUG Then
+                Debug.WriteLine($"[FileFriendly] MAPI: OpenMsgStore '{storeDisplayName}' hr=0x{hr:X8}")
+#End If
+                If hr <> 0 OrElse pStore = IntPtr.Zero Then Continue For
+
+                MapiWalkStoreRoot(pStore, storeIdHex, storeDisplayName)
+
+                MapiVtable.Release(pStore)
+            Next
+
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: Walk complete, gFolderTableIndex={gFolderTableIndex}")
+#End If
+
+        Catch ex As Exception
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: Exception in MapiWalkAllStores: {ex.Message}")
+#End If
+        Finally
+            If pRowSet <> IntPtr.Zero Then MapiHelpers.MAPIFreeBuffer(pRowSet)
+            If pStoresTable <> IntPtr.Zero Then MapiVtable.Release(pStoresTable)
+            If pStoreTags <> IntPtr.Zero Then Marshal.FreeHGlobal(pStoreTags)
+            If pSession <> IntPtr.Zero Then
+                MapiVtable.Logoff(pSession)
+                MapiVtable.Release(pSession)
+            End If
+            If mapiInitialized Then MapiNative.MAPIUninitialize()
+        End Try
+
+    End Sub
+
+    Private Sub MapiWalkStoreRoot(ByVal pStore As IntPtr, ByVal storeIdHex As String, ByVal storeDisplayName As String)
+
+        If gCancelRefresh Then Exit Sub
+
+        Dim pSubtreeFolder As IntPtr = IntPtr.Zero
+        Dim pSubtreeTags As IntPtr = IntPtr.Zero
+        Dim pStoreProps As IntPtr = IntPtr.Zero
+
+        Try
+            pSubtreeTags = MapiHelpers.AllocPropTagArray({MapiPropTags.PR_IPM_SUBTREE_ENTRYID})
+
+            Dim cValues As UInteger
+            Dim hr As Integer = MapiVtable.FolderGetProps(pStore, pSubtreeTags,
+                                                           MapiFlags.MAPI_UNICODE, cValues, pStoreProps)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: Store GetProps(IPM subtree) hr=0x{hr:X8}, pProps={(If(pStoreProps <> IntPtr.Zero, "ok", "null"))}")
+#End If
+            If hr < 0 OrElse pStoreProps = IntPtr.Zero Then Exit Sub
+
+            Dim subtreeEntryIdCb As Integer
+            Dim subtreeEntryIdPtr As IntPtr = MapiHelpers.GetBinaryProperty(
+                pStoreProps, cValues, MapiPropTags.PR_IPM_SUBTREE_ENTRYID, subtreeEntryIdCb)
+            If subtreeEntryIdPtr = IntPtr.Zero OrElse subtreeEntryIdCb <= 0 Then Exit Sub
+
+            Dim subtreeEntryIdHex As String = MapiHelpers.GetBinaryPropertyAsHex(
+                pStoreProps, cValues, MapiPropTags.PR_IPM_SUBTREE_ENTRYID)
+
+            Dim objType As UInteger
+            hr = MapiVtable.MsgStoreOpenEntry(pStore, CUInt(subtreeEntryIdCb), subtreeEntryIdPtr,
+                                               IntPtr.Zero, MapiFlags.MAPI_BEST_ACCESS, objType, pSubtreeFolder)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: IPM subtree OpenEntry hr=0x{hr:X8}, obj={(If(pSubtreeFolder <> IntPtr.Zero, "ok", "null"))}")
+#End If
+            If hr <> 0 OrElse pSubtreeFolder = IntPtr.Zero Then Exit Sub
+
+            Dim rootPath As String = "\\" & storeDisplayName
+            Dim rootContentCount As Integer = 0
+            Dim pRootCountTags As IntPtr = MapiHelpers.AllocPropTagArray({MapiPropTags.PR_CONTENT_COUNT})
+            Dim rootCountValues As UInteger
+            Dim pRootCountProps As IntPtr = IntPtr.Zero
+            Try
+                If MapiVtable.FolderGetProps(pSubtreeFolder, pRootCountTags, MapiFlags.MAPI_UNICODE,
+                                              rootCountValues, pRootCountProps) >= 0 AndAlso
+                   pRootCountProps <> IntPtr.Zero Then
+                    rootContentCount = MapiHelpers.GetLongProperty(
+                        pRootCountProps, rootCountValues, MapiPropTags.PR_CONTENT_COUNT)
+                End If
+            Finally
+                If pRootCountProps <> IntPtr.Zero Then MapiHelpers.MAPIFreeBuffer(pRootCountProps)
+                Marshal.FreeHGlobal(pRootCountTags)
+            End Try
+
+            MapiAddFolderEntry(subtreeEntryIdHex, storeIdHex, rootPath,
+                               Microsoft.Office.Interop.Outlook.OlItemType.olMailItem, rootContentCount)
+            MapiWalkChildren(pSubtreeFolder, storeIdHex, rootPath)
+
+        Catch ex As Exception
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: Exception in MapiWalkStoreRoot: {ex.Message}")
+#End If
+        Finally
+            If pStoreProps <> IntPtr.Zero Then MapiHelpers.MAPIFreeBuffer(pStoreProps)
+            If pSubtreeTags <> IntPtr.Zero Then Marshal.FreeHGlobal(pSubtreeTags)
+            If pSubtreeFolder <> IntPtr.Zero Then MapiVtable.Release(pSubtreeFolder)
+        End Try
+
+    End Sub
+
+    Private Sub MapiWalkChildren(ByVal pParentFolder As IntPtr, ByVal storeIdHex As String, ByVal parentPath As String)
+
+        If gCancelRefresh Then Exit Sub
+
+        Dim pHTable As IntPtr = IntPtr.Zero
+        Dim pTags As IntPtr = IntPtr.Zero
+        Dim pRowSet As IntPtr = IntPtr.Zero
+
+        Try
+            Dim hr As Integer = MapiVtable.GetHierarchyTable(pParentFolder, 0, pHTable)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: GetHierarchyTable '{parentPath}' hr=0x{hr:X8}, table={(If(pHTable <> IntPtr.Zero, "ok", "null"))}")
+#End If
+            If hr <> 0 OrElse pHTable = IntPtr.Zero Then Exit Sub
+
+            Dim folderTags() As UInteger = {
+                MapiPropTags.PR_DISPLAY_NAME_W,
+                MapiPropTags.PR_ENTRYID,
+                MapiPropTags.PR_CONTAINER_CLASS_W,
+                MapiPropTags.PR_CONTENT_COUNT,
+                MapiPropTags.PR_SUBFOLDERS
+            }
+            pTags = MapiHelpers.AllocPropTagArray(folderTags)
+            hr = MapiVtable.SetColumns(pHTable, pTags, 0)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: SetColumns '{parentPath}' hr=0x{hr:X8}")
+#End If
+
+            hr = MapiVtable.QueryRows(pHTable, 9999, 0, pRowSet)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: QueryRows '{parentPath}' hr=0x{hr:X8}, pRowSet={(If(pRowSet <> IntPtr.Zero, "ok", "null"))}")
+#End If
+            If pRowSet = IntPtr.Zero Then Exit Sub
+
+            Dim cRows As Integer = Marshal.ReadInt32(pRowSet, 0)
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: '{parentPath}' returned {cRows} child folders")
+#End If
+
+            For r As Integer = 0 To cRows - 1
+                If gCancelRefresh Then Exit For
+
+                Dim rowOffset As Integer = MapiHelpers.SRowSetFirstRowOffset + r * MapiHelpers.SRowSize
+                Dim cValues As UInteger = CUInt(Marshal.ReadInt32(pRowSet, rowOffset + 4))
+                Dim lpProps As IntPtr = Marshal.ReadIntPtr(pRowSet, rowOffset + 8)
+
+                Dim displayName As String = MapiHelpers.GetStringProperty(
+                    lpProps, cValues, MapiPropTags.PR_DISPLAY_NAME_W)
+                If String.IsNullOrEmpty(displayName) Then Continue For
+
+                Dim entryIdHex As String = MapiHelpers.GetBinaryPropertyAsHex(
+                    lpProps, cValues, MapiPropTags.PR_ENTRYID)
+                If String.IsNullOrEmpty(entryIdHex) Then Continue For
+
+                Dim containerClass As String = MapiHelpers.GetStringProperty(
+                    lpProps, cValues, MapiPropTags.PR_CONTAINER_CLASS_W)
+                Dim contentCount As Integer = MapiHelpers.GetLongProperty(
+                    lpProps, cValues, MapiPropTags.PR_CONTENT_COUNT)
+                Dim hasSubFolders As Boolean = MapiHelpers.GetBoolProperty(
+                    lpProps, cValues, MapiPropTags.PR_SUBFOLDERS)
+
+                Dim childEntryIdCb As Integer
+                Dim childEntryIdPtr As IntPtr = MapiHelpers.GetBinaryProperty(
+                    lpProps, cValues, MapiPropTags.PR_ENTRYID, childEntryIdCb)
+
+                ' certain folders (inbox , sent, deleted, drafts, junk, outbox, rssfeeds, syncissues)will have a containerClass that is null or empty, treat as mail folder
+                Dim isMail As Boolean = MapiHelpers.IsMailFolder(containerClass) OrElse containerClass Is Nothing OrElse containerClass = ""
+
+                Dim pOpenedFolder As IntPtr = IntPtr.Zero
+                Dim needOpen As Boolean = False
+
+                If Not isMail AndAlso MapiHelpers.IsPropertyError(
+                        lpProps, cValues, MapiPropTags.PR_CONTAINER_CLASS_W) Then
+                    needOpen = True
+                End If
+                If hasSubFolders Then
+                    needOpen = True
+                End If
+
+                If needOpen AndAlso childEntryIdPtr <> IntPtr.Zero AndAlso childEntryIdCb > 0 Then
+                    Dim childType As UInteger
+                    hr = MapiVtable.FolderOpenEntry(pParentFolder, CUInt(childEntryIdCb), childEntryIdPtr,
+                                                     IntPtr.Zero, MapiFlags.MAPI_BEST_ACCESS, childType, pOpenedFolder)
+                    If hr <> 0 Then pOpenedFolder = IntPtr.Zero
+                End If
+
+                If Not isMail AndAlso pOpenedFolder <> IntPtr.Zero Then
+                    Dim fbTags() As UInteger = {
+                        MapiPropTags.PR_CONTAINER_CLASS_W,
+                        MapiPropTags.PR_CONTENT_COUNT
+                    }
+                    Dim pFbTags As IntPtr = MapiHelpers.AllocPropTagArray(fbTags)
+                    Dim fbCValues As UInteger
+                    Dim pFbProps As IntPtr = IntPtr.Zero
+                    MapiVtable.FolderGetProps(pOpenedFolder, pFbTags, MapiFlags.MAPI_UNICODE, fbCValues, pFbProps)
+                    Marshal.FreeHGlobal(pFbTags)
+                    If pFbProps <> IntPtr.Zero Then
+                        containerClass = MapiHelpers.GetStringProperty(
+                            pFbProps, fbCValues, MapiPropTags.PR_CONTAINER_CLASS_W)
+                        contentCount = MapiHelpers.GetLongProperty(
+                            pFbProps, fbCValues, MapiPropTags.PR_CONTENT_COUNT)
+                        isMail = MapiHelpers.IsMailFolder(containerClass)
+                        MapiHelpers.MAPIFreeBuffer(pFbProps)
+                    End If
+                End If
+
+                If isMail Then
+                    Dim folderPath As String = parentPath & "\" & displayName
+                    MapiAddFolderEntry(entryIdHex, storeIdHex, folderPath,
+                                       Microsoft.Office.Interop.Outlook.OlItemType.olMailItem,
+                                       contentCount)
+                End If
+
+                If hasSubFolders AndAlso pOpenedFolder <> IntPtr.Zero Then
+                    Dim folderPath As String = parentPath & "\" & displayName
+                    MapiWalkChildren(pOpenedFolder, storeIdHex, folderPath)
+                End If
+
+                If pOpenedFolder <> IntPtr.Zero Then
+                    MapiVtable.Release(pOpenedFolder)
+                End If
+
+            Next
+
+        Catch ex As Exception
+#If DEBUG Then
+            Debug.WriteLine($"[FileFriendly] MAPI: Exception in MapiWalkChildren: {ex.Message}")
+#End If
+        Finally
+            If pRowSet <> IntPtr.Zero Then MapiHelpers.MAPIFreeBuffer(pRowSet)
+            If pHTable <> IntPtr.Zero Then MapiVtable.Release(pHTable)
+            If pTags <> IntPtr.Zero Then Marshal.FreeHGlobal(pTags)
+        End Try
+
+    End Sub
+
+    Private Sub MapiAddFolderEntry(ByVal entryIdHex As String,
+                                   ByVal storeIdHex As String,
+                                   ByVal folderPath As String,
+                                   ByVal defaultItemType As Microsoft.Office.Interop.Outlook.OlItemType,
+                                   ByVal contentCount As Integer)
+
+        If String.IsNullOrEmpty(folderPath) Then Exit Sub
+
+        If gFolderTable Is Nothing OrElse gFolderTable.Length = 0 Then
+            gFolderTableCurrentSize = gFolderTableIncrement
+            ReDim gFolderTable(gFolderTableCurrentSize)
+        End If
+
+        If gFolderTableIndex > gFolderTableCurrentSize - 1 Then
+            gFolderTableCurrentSize += gFolderTableIncrement
+            ReDim Preserve gFolderTable(gFolderTableCurrentSize)
+        End If
+
+        Dim info As FolderInfo
+        info.EntryID = entryIdHex
+        info.StoreID = storeIdHex
+        info.FolderPath = folderPath
+        info.DefaultItemType = defaultItemType
+        info.FolderType = FolderTableType.OtherFolders
+
+        gFolderTable(gFolderTableIndex) = info
+        gFolderTableIndex += 1
+
+        Dim CurrentFolderPath As String = info.FolderPath
+        Dim Include As Boolean
+
+        Dim isInboxFolder As Boolean = gDefaultInboxEntryIDs.Contains(info.EntryID) OrElse
+                                       gDefaultInboxFolderPaths.Contains(info.FolderPath)
+        Dim isSentFolder As Boolean = gDefaultSentEntryIDs.Contains(info.EntryID) OrElse
+                                      gDefaultSentFolderPaths.Contains(info.FolderPath)
+
+        If (gRefreshInbox AndAlso isInboxFolder) OrElse (gRefreshSent AndAlso isSentFolder) Then
+            Include = True
+        ElseIf gRefreshOtherFolders Then
+            Include = Collection_of_folders_to_exclude_is_empty OrElse (Collection_of_folders_to_exclude.IndexOf(CurrentFolderPath) = -1)
+        Else
+            Include = False
+        End If
+
+        Dim folderItemCount As Integer = 0
+
+        If Include Then
+            folderItemCount = contentCount
+            lTotalEMailsToBeReviewed += folderItemCount
+        End If
+
+        lTotalEMails += folderItemCount
+
+        Dim msg As String
+        If Include Then
+            msg = "Including " & CurrentFolderPath.TrimStart("\"c)
+        Else
+            msg = "Excluding " & CurrentFolderPath.TrimStart("\"c)
+        End If
+
+        Me.Dispatcher.BeginInvoke(
+                New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
+                New Object() {msg})
+
+    End Sub
+
+    ' ------- OOM fallback walk (used when Extended MAPI walk produces no folders) -------
+
+    Private Sub AddFolderOOM(ByRef StartFolder As Microsoft.Office.Interop.Outlook.MAPIFolder)
 
         If gCancelRefresh Then Exit Sub
 
@@ -2473,19 +2913,18 @@ EarlyExit:
         Dim count As Integer = 0
 
         Try
-            ' Batch COM property reads together to minimize marshaling overhead
             defaultItemType = StartFolder.DefaultItemType
             subFolders = StartFolder.Folders
 
             If defaultItemType = Microsoft.Office.Interop.Outlook.OlItemType.olMailItem Then
-                AddAnEntry(StartFolder)
+                AddAnEntryOOM(StartFolder)
             End If
 
             If subFolders Is Nothing Then Exit Sub
 
             Try
                 count = subFolders.Count
-            Catch ex As System.Runtime.InteropServices.COMException
+            Catch ex As COMException
                 Exit Sub
             Catch
                 Exit Sub
@@ -2501,18 +2940,16 @@ EarlyExit:
                     oFolder = subFolders.Item(i)
 
                     If oFolder IsNot Nothing Then
-                        AddFolder(oFolder)
+                        AddFolderOOM(oFolder)
                     End If
 
-                Catch ex As System.Runtime.InteropServices.COMException
-                    ' Skip any sub-folder that errors
+                Catch ex As COMException
                 Catch
-                    ' Ignore and continue with remaining sub-folders
                 Finally
 
                     If oFolder IsNot Nothing Then
                         Try
-                            System.Runtime.InteropServices.Marshal.ReleaseComObject(oFolder)
+                            Marshal.ReleaseComObject(oFolder)
                         Catch
                         End Try
                         oFolder = Nothing
@@ -2522,17 +2959,15 @@ EarlyExit:
 
             Next
 
-        Catch ex As System.Runtime.InteropServices.COMException
-            ' Skip folders that cannot be inspected due to Outlook/MAPI errors
+        Catch ex As COMException
             Exit Sub
         Catch
-            ' Any other error getting DefaultItemType – skip this folder
             Exit Sub
         Finally
 
             If subFolders IsNot Nothing Then
                 Try
-                    System.Runtime.InteropServices.Marshal.ReleaseComObject(subFolders)
+                    Marshal.ReleaseComObject(subFolders)
                 Catch
                 End Try
                 subFolders = Nothing
@@ -2542,9 +2977,8 @@ EarlyExit:
 
     End Sub
 
-    Private Sub AddAnEntry(ByRef Folder As Microsoft.Office.Interop.Outlook.MAPIFolder)
+    Private Sub AddAnEntryOOM(ByRef Folder As Microsoft.Office.Interop.Outlook.MAPIFolder)
 
-        'Ensure the folder table Is initialized at least once
         If gFolderTable Is Nothing OrElse gFolderTable.Length = 0 Then
             gFolderTableCurrentSize = gFolderTableIncrement
             ReDim gFolderTable(gFolderTableCurrentSize)
@@ -2555,19 +2989,16 @@ EarlyExit:
             ReDim Preserve gFolderTable(gFolderTableCurrentSize)
         End If
 
-        ' Batch COM property reads to minimize marshaling overhead
         Dim info As FolderInfo
         Dim folderItems As Microsoft.Office.Interop.Outlook.Items = Nothing
 
         Try
-            ' Read all required properties in a single batch to reduce COM calls
             info.EntryID = Folder.EntryID
             info.StoreID = Folder.StoreID
             info.FolderPath = Folder.FolderPath
             info.DefaultItemType = Folder.DefaultItemType
             folderItems = Folder.Items
-        Catch ex As System.Runtime.InteropServices.COMException
-            ' If we can't read folder properties, skip this folder
+        Catch ex As COMException
             Exit Sub
         Catch
             Exit Sub
@@ -2579,9 +3010,10 @@ EarlyExit:
         Dim CurrentFolderPath As String = info.FolderPath
         Dim Include As Boolean
 
-        ' Use language-independent folder identification via EntryID
-        Dim isInboxFolder As Boolean = gDefaultInboxEntryIDs.Contains(info.EntryID)
-        Dim isSentFolder As Boolean = gDefaultSentEntryIDs.Contains(info.EntryID)
+        Dim isInboxFolder As Boolean = gDefaultInboxEntryIDs.Contains(info.EntryID) OrElse
+                                       gDefaultInboxFolderPaths.Contains(info.FolderPath)
+        Dim isSentFolder As Boolean = gDefaultSentEntryIDs.Contains(info.EntryID) OrElse
+                                      gDefaultSentFolderPaths.Contains(info.FolderPath)
 
         If (gRefreshInbox AndAlso isInboxFolder) OrElse (gRefreshSent AndAlso isSentFolder) Then
             Include = True
@@ -2605,7 +3037,7 @@ EarlyExit:
 
         If folderItems IsNot Nothing Then
             Try
-                System.Runtime.InteropServices.Marshal.ReleaseComObject(folderItems)
+                Marshal.ReleaseComObject(folderItems)
             Catch
             End Try
             folderItems = Nothing
@@ -2620,7 +3052,6 @@ EarlyExit:
             msg = "Excluding " & CurrentFolderPath.TrimStart("\"c)
         End If
 
-        ' I tried throttling the UI updates below, but there was no noticeable performance gain
         Me.Dispatcher.BeginInvoke(
                 New SetFolderNameTextCallback(AddressOf SetFoldersNameText),
                 New Object() {msg})
@@ -2754,7 +3185,7 @@ EarlyExit:
 
         trailer = Regex.Replace(trailer, "\s+", "") ' remove all whitespace characters to ensure consistent hashing
 
-        'Console.Write(_subject & "    " & trailer & " ")
+        ' Console.Write(_subject & "    " & trailer & " ")
 
         ' compute a MD5-based fingerprint for the trailer and return it as a hexadecimal string
 
@@ -4339,12 +4770,14 @@ EarlyExit:
         End Try
 
         If String.IsNullOrEmpty(folderPath) Then Return ""
-        Dim parts As String() = folderPath.Split("\"c)
-        If parts.Length > 1 Then
-            Return parts(1)
+
+        Dim trimmedFolderPath As String = folderPath.Trim("\"c)
+        Dim separatorIndex As Integer = trimmedFolderPath.IndexOf("\"c)
+        If separatorIndex >= 0 Then
+            Return trimmedFolderPath.Substring(0, separatorIndex)
         End If
 
-        Return folderPath.Trim("\"c)
+        Return trimmedFolderPath
 
     End Function
     Private Sub ActivateMenuNow()
