@@ -667,7 +667,9 @@ Class MainWindow
 
             LoadHiddenEntryIds()
 
-            MainWindow.Visibility = Windows.Visibility.Visible
+            If Not DirectCast(Application.Current, Application).IsSplashScreenVisible Then
+                MainWindow.Visibility = Windows.Visibility.Visible
+            End If
 
             Try
                 Dim version As String = oApp.Version
@@ -958,8 +960,6 @@ Class MainWindow
             My.Settings.FoldersTop = gPickAFolderWindow.Top
             My.Settings.FoldersLeft = gPickAFolderWindow.Left
         End If
-
-        My.Settings.StartDocked = gWindowDocked
 
         'this should always be true, but check anyway
         If System.Windows.SystemParameters.PrimaryScreenWidth > 0 Then
@@ -1300,8 +1300,8 @@ Class MainWindow
 
     End Sub
 
-    Delegate Sub FinalizeLoadCallback(ByVal MSOutlookDrivenEvent As Boolean)
-    Private Sub FinalizeLoad(ByVal MSOutlookDrivenEvent As Boolean)
+    Delegate Sub FinalizeLoadCallback(ByVal MSOutlookDrivenEvent As Boolean, ByVal InitialLoad As Boolean)
+    Private Sub FinalizeLoad(ByVal MSOutlookDrivenEvent As Boolean, ByVal InitialLoad As Boolean)
 
         ApplyFilter()
 
@@ -1370,6 +1370,10 @@ Class MainWindow
         End Try
 
         EndRefreshCursor()
+
+        If InitialLoad Then
+            DirectCast(Application.Current, Application).CloseSplashScreen()
+        End If
 
         gIsRefreshing = False
 
@@ -2128,7 +2132,7 @@ Class MainWindow
 
             End If
 
-            Me.Dispatcher.BeginInvoke(New FinalizeLoadCallback(AddressOf FinalizeLoad), New Object() {MSOutlookDrivenEvent})
+            Me.Dispatcher.BeginInvoke(New FinalizeLoadCallback(AddressOf FinalizeLoad), New Object() {MSOutlookDrivenEvent, InitialLoad})
 
 CleanExit:
 

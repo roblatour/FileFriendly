@@ -1,5 +1,72 @@
 ﻿Class Application
 
+    Private _splashScreen As SplashScreen
+
+    Private Sub Application_Startup(ByVal sender As Object, ByVal e As System.Windows.StartupEventArgs) Handles Me.Startup
+
+        Dim mainWindow As New MainWindow()
+        Me.MainWindow = mainWindow
+
+        If My.Settings.ShowSplashScreen Then
+            mainWindow.AllowsTransparency = True
+            mainWindow.Opacity = 0
+            mainWindow.Left = -10000
+            mainWindow.Top = -10000
+            _splashScreen = New SplashScreen()
+            PositionSplashScreen(_splashScreen, mainWindow)
+            _splashScreen.Show()
+        End If
+
+        mainWindow.Show()
+
+    End Sub
+
+    Private Sub PositionSplashScreen(ByVal splashScreen As SplashScreen, ByVal mainWindow As MainWindow)
+
+        Dim mainBounds As System.Windows.Rect = AdjustWindowRect(My.Settings.MainLeft, My.Settings.MainTop, My.Settings.MainWidth, My.Settings.MainHeight, mainWindow.MinWidth, mainWindow.MinHeight)
+        Dim folderBounds As System.Windows.Rect = AdjustWindowRect(My.Settings.FoldersLeft, My.Settings.FoldersTop, My.Settings.FoldersWidth, My.Settings.FoldersHeight, 385, 650)
+
+        Dim left As Double = System.Math.Min(mainBounds.Left, folderBounds.Left)
+        Dim top As Double = System.Math.Min(mainBounds.Top, folderBounds.Top)
+        Dim right As Double = System.Math.Max(mainBounds.Right, folderBounds.Right)
+        Dim bottom As Double = System.Math.Max(mainBounds.Bottom, folderBounds.Bottom)
+
+        splashScreen.Left = left + ((right - left - splashScreen.Width) / 2)
+        splashScreen.Top = top + ((bottom - top - splashScreen.Height) / 2)
+
+    End Sub
+
+    Public ReadOnly Property IsSplashScreenVisible As Boolean
+        Get
+            Return _splashScreen IsNot Nothing AndAlso _splashScreen.IsLoaded
+        End Get
+    End Property
+
+    Public Sub CloseSplashScreen()
+
+        If _splashScreen Is Nothing Then
+            Return
+        End If
+
+        If _splashScreen.IsLoaded Then
+            _splashScreen.Close()
+        End If
+        _splashScreen = Nothing
+
+        If Me.MainWindow IsNot Nothing Then
+            Me.MainWindow.Opacity = 1
+            Me.MainWindow.Visibility = Visibility.Visible
+        End If
+
+        If gPickAFolderWindow IsNot Nothing Then
+            gPickAFolderWindow.Opacity = 1
+            If Not gPickAFolderWindow.IsVisible Then
+                gPickAFolderWindow.Show()
+            End If
+        End If
+
+    End Sub
+
     ' Application-level events, such as Startup, Exit, and DispatcherUnhandledException
     ' can be handled in this file.
 

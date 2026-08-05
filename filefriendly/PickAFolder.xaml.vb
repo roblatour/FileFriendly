@@ -40,6 +40,13 @@ Partial Public Class PickAFolder
         InitializeComponent()
 
         ' Add any initialization after the InitializeComponent() call.
+        If DirectCast(Application.Current, Application).IsSplashScreenVisible Then
+            Me.AllowsTransparency = True
+            Me.Opacity = 0
+            Me.Left = -10000
+            Me.Top = -10000
+        End If
+
         Try
 
             OriginalGrid1Margin = Grid1.Margin
@@ -217,8 +224,14 @@ Partial Public Class PickAFolder
             End If
 
             If My.Settings.SoundDocking Then
-                My.Computer.Audio.Play(gDockSound, AudioPlayMode.Background)
+                If DirectCast(Application.Current, Application).IsSplashScreenVisible Then
+                    ' Do not play sound if splash screen is visible
+                Else
+                    My.Computer.Audio.Play(gDockSound, AudioPlayMode.Background)
+                End If
             End If
+
+
 
             Dim hwndSource As System.Windows.Interop.HwndSource = TryCast(PresentationSource.FromVisual(Me), System.Windows.Interop.HwndSource)
             If hwndSource IsNot Nothing Then
@@ -226,6 +239,10 @@ Partial Public Class PickAFolder
             End If
 
             DockUndockWindow("Initial Load")
+
+            If DirectCast(Application.Current, Application).IsSplashScreenVisible Then
+                Me.Hide()
+            End If
 
         Catch ex As Exception
 
@@ -400,6 +417,7 @@ Partial Public Class PickAFolder
                         If gWindowDocked Then Exit Select
 
                         gWindowDocked = True
+                        My.Settings.StartDocked = True
                         WindowDockingInProgress = True
                         imageUri = New Uri("/filefriendly;component/Resources/pushpindown.gif", UriKind.Relative)
                         PlaceWindow()
@@ -416,6 +434,7 @@ Partial Public Class PickAFolder
                         If Not gWindowDocked Then Exit Select
 
                         gWindowDocked = False
+                        My.Settings.StartDocked = False
                         imageUri = New Uri("/filefriendly;component/Resources/pushpinup.gif", UriKind.Relative)
 
                         'nudge the two windows apart
