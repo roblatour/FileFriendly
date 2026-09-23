@@ -3,7 +3,7 @@
 ; Non-commercial use only
 
 #define MyAppName "FileFriendly"
-#define MyAppVersion "2.7.1"
+#define MyAppVersion "2.7.2"
 #define MyAppPublisher "Rob Latour"
 #define MyAppURL "https://github.com/roblatour/FileFriendly"
 #define MyAppExeName "filefriendly.exe"

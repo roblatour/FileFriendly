@@ -1,0 +1,52 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Directory metadata
+.directory
+
+# Temporary files
+*~
+*.swp
+*.swo
+*.bak
+*.tmp
+
+# Log files
+*.log
+
+.vscode/
+
+# Build artifacts and directories
+**/bin/
+**/obj/
+*.o
+*.a
+*.out
+*.exe # For any host-side utilities compiled on Windows
+
+*.zip
+
+# Windows specific
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# auto release update files
+Release/
+.vs
+.zencoder/
+.zenflow/
+FileFiendly/.zencoder/
+FileFiendly/.zenflow/
+FileFrindly/.vs/
+
+
+AGENTS.md
+
+# User-specific configuration files
+*.user
+*.workspace # General workspace files, can be from various tools
+*.suo       # Visual Studio Solution User Options
+*.sln.docstates # Visual Studio

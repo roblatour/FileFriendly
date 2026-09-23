@@ -1,6 +1,7 @@
 ﻿<Window x:Class="MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         Title="FileFriendly"
         Name="MainWindow"
         Height="600"
@@ -13,6 +14,13 @@
         WindowStyle="None"
         WindowStartupLocation="Manual"
         Icon="/filefriendly;component/Resources/fflogogif.gif">
+
+    <shell:WindowChrome.WindowChrome>
+        <shell:WindowChrome ResizeBorderThickness="6"
+                            CaptionHeight="0"
+                            CornerRadius="0"
+                            GlassFrameThickness="0"/>
+    </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
         <ResourceDictionary>
@@ -103,7 +111,7 @@
                           Foreground="{StaticResource DefaultSystemBrush}"
                           Background="{StaticResource DefaultMenueBackgroundBrush}"
                           IsCheckable="False"
-                          Cursor="Arrow"/>             
+                          Cursor="Arrow"/>
                 <MenuItem Header="_Refresh"
                           Name="MenuRefresh"
                           Tag="Refresh"
@@ -235,7 +243,7 @@
                               AllowDrop="False"
                               Cursor="Arrow"
                               IsTextSearchEnabled="False"
-                              SelectionMode="Extended" 
+                              SelectionMode="Extended"
                               GridViewColumnHeader.Click="ListViewColumnHeaderClickedHandler"
                               ContextMenuOpening="ListView1_ContextMenuOpening">
 
