@@ -37,7 +37,7 @@ the time you are used to.
 
 # Getting Started
 
-1.  Download and install File Friendly from setup zip file found [here](https://github.com/roblatour/FileFriendly/releases/tag/2.7.0.0) 
+1.  Download and install File Friendly from setup zip file found [here](https://github.com/roblatour/FileFriendly/releases) 
     (Note: the setup file is not digitally signed)
 
 
